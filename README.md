@@ -1,7 +1,8 @@
 # 1AI
 
-A chat client for Anthropic, OpenAI and Google Gemini that runs on Android 1.6 and is
-driven entirely from a physical keyboard — built for a BlackBerry.
+A chat client for Anthropic, OpenAI, Google Gemini and about a dozen other providers,
+with image and PDF attachments. Runs on Android 1.6 and is driven entirely from a
+physical keyboard — built for a BlackBerry.
 
 ```
 minSdkVersion 4 (Android 1.6 Donut)   targetSdkVersion 28   compileSdk 34
@@ -70,6 +71,7 @@ Everything is reachable without touching the screen.
 | `Del` | chats | Delete selected |
 | `Ctrl+R` | chat | Retry the last turn |
 | `Ctrl+K` | chat | Change model |
+| — | chat | `+` button or `Menu` attaches an image or PDF |
 
 Focus is always visible: the focused row is drawn in the era's own highlight colour, and
 text colour flips with it so the contrast holds. Focus is explicitly restored after
@@ -104,6 +106,86 @@ Two details that are easy to get wrong and are handled deliberately:
   `Resources$NotFoundException`. The base theme is API-1-safe and only colours vary.
 
 ---
+
+## Attachments
+
+Images and PDFs, picked through the system file picker — no permissions, and no
+storage access beyond the one file chosen.
+
+The interesting part is what happens before an image is sent. Every image is decoded
+with bounds inspection first, subsampled in powers of two, scaled exactly, and
+re-encoded, so a 12-megapixel photo becomes something a 2010 phone can hold in memory.
+`AttachmentStore.MAX_DIMENSION` is **1568px**, and that single number is doing real
+work: it is Anthropic's long-edge limit for its standard resolution tier, it sits under
+the ~1600px that OpenAI's patch budget allows its largest models, and it is far below
+Google's 3072px. It also keeps requests under Anthropic's stricter per-image limit,
+which kicks in for *every* image once a request carries more than twenty.
+
+Shrinking on the device is not only about memory. All three providers downscale
+oversized images server-side anyway, and image cost is billed per 28×28 or 32×32 patch,
+so sending more pixels than the model will use wastes bandwidth and money for no gain
+in quality.
+
+Re-encoding also sidesteps a real incompatibility rather than working around it:
+**Gemini does not accept GIF at all**, and Anthropic and OpenAI accept it only as a
+still first frame. Everything is normalised to JPEG, or PNG when the source had
+transparency, so no provider ever has to care what the user picked.
+
+Each API wants a different shape, and the differences are not guessable:
+
+| | Anthropic | OpenAI | Google |
+|---|---|---|---|
+| Image | `{"type":"image","source":{"type":"base64",...}}` | `{"type":"image_url","image_url":{"url":"data:..."}}` | `{"inlineData":{"mimeType":...}}` |
+| PDF | `{"type":"document","source":{...}}` | `{"type":"file","file":{"file_data":"data:..."}}` | `{"inlineData":{"mimeType":"application/pdf"}}` |
+| Text first? | yes | yes | yes |
+
+Two traps worth naming. OpenAI's `image_url` is an **object** on chat completions but a
+bare string on `/v1/responses` — mixing them up fails quietly. And Gemini takes
+`inlineData`/`mimeType` in camelCase, while Google's own curl samples for the same
+endpoint use snake_case; the published JSON schema says camelCase, so that is what is
+sent.
+
+Attachments are only ever sent on **user** turns. Anthropic rejects image blocks in
+assistant turns outright, so replaying a model's own images back to it is an error
+rather than merely pointless.
+
+Because all three APIs are stateless, history is re-sent in full on every turn,
+images included. Only the newest eight messages carry their images; older ones keep
+their text and lose their pictures. On a device with a heap measured in tens of
+megabytes, sending less beats being killed mid-request.
+
+Files live in app-private storage and only their metadata goes in SQLite — base64 blobs
+in the database would inflate it by a third and make every conversation query read
+them. Deleting a conversation, a message, or clearing a chat removes the files too, and
+attachments picked but never sent are cleaned up when the screen is left.
+
+Tapping a thumbnail opens it full-size in a viewer of our own. Handing the file to
+another app would mean passing a `file://` URI out of the process, which throws
+`FileUriExposedException` from API 24 onward and would need a ContentProvider to fix —
+a lot of machinery to display a picture we already own.
+
+## More providers
+
+Beyond Anthropic, OpenAI and Google, `CompatibleEndpoints` ships presets for services
+that speak the OpenAI chat-completions format:
+
+> OpenRouter · Groq · DeepSeek · xAI (Grok) · Mistral · Together · Fireworks · Cerebras ·
+> SambaNova · Hyperbolic · Meta Llama · Ollama · LM Studio · vLLM
+
+Each is a full provider with its own API key, model and **editable endpoint**, so
+anything not on the list can be added by typing a base URL. Every base URL here was
+read off the vendor's own documentation rather than recalled, because a wrong one
+produces a confusing failure rather than an obvious one — and they are genuinely
+inconsistent: most include `/v1` in the base URL, DeepSeek's does not, and Meta's
+compatible surface lives under `/compat/v1`.
+
+Two popular services are deliberately absent. **Perplexity**'s documented base is now
+`/router/v1` and its chat-completions support ended in September 2026. **Azure OpenAI**
+cannot be expressed as a base URL at all — it is deployment-based with a mandatory
+`api-version` query parameter and authenticates with an `api-key` header rather than a
+bearer token, so it needs a provider of its own rather than a preset.
+
+Adding a service is one entry in one array; the parser is shared.
 
 ## Compatibility — what actually works
 
@@ -210,17 +292,48 @@ so scrolling up to re-read is not yanked away.
 
 ---
 
+## Continuous integration
+
+`.github/workflows/ci.yml` runs three jobs on every push and pull request:
+
+* **Provider tests** — the JVM suite. No SDK, no emulator, seconds.
+* **Build** — a real APK from a real Android SDK, then `tools/verify-apk.sh`.
+* **Smoke test** — installs that exact artefact and launches it on **API 18** and
+  **API 21** emulators, failing on `FATAL EXCEPTION`, `VerifyError`,
+  `NoSuchMethodError` or `Resources$NotFoundException`. API 18 is the level BlackBerry
+  10's Android runtime sits at. Building is not the same as running, and errors of that
+  shape only ever appear at runtime on the target hardware.
+
+The verification step is worth calling out. It asserts the promises the project makes:
+minSdkVersion is still 4, a launcher activity exists, v1 (JAR) signing is present —
+without which the APK will not install below Android 7 — and the dex references no API
+newer than the floor. Those live in `tools/verify-apk.sh` rather than in workflow YAML,
+so they run on a laptop too and a developer finds out before pushing.
+
+`release.yml` fires on a `v*` tag and publishes the APK with a SHA-256. It accepts a
+real signing key from repository secrets (`KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`,
+`KEY_ALIAS`, `KEY_PASSWORD`); without them it still builds, with the throwaway debug
+key, and says so in the release notes. That matters because Android refuses to update
+an installed app whose signing key changed, so shipping each release under a different
+key forces every user to uninstall first.
+
+The build toolchain is pinnable via `ANDROID_BUILD_TOOLS` and `ANDROID_PLATFORM`, and
+`build.sh` records what it used in `build/sdk.env` so the verifier inspects the APK with
+the same tools that produced it. Without that, CI and a laptop each pick their own
+newest build-tools, and "it passed locally" stops meaning anything.
+
 ## Testing
 
 ```bash
-./test/run.sh     # 40 tests, no framework required
+./test/run.sh     # 51 tests, no framework required
 ```
 
-Covers the request JSON each provider emits, SSE parsing (frames split across reads,
-multi-byte UTF-8 split mid-character, CRLF, `[DONE]` vs EOF, thinking deltas), error
-mapping for each provider's real error envelope, and hostname verification including the
-rejection cases — wildcards that would match a bare domain, cross label boundaries, or
-cover a public suffix.
+Covers the request JSON each provider emits (including the attachment shapes above),
+SSE parsing (frames split across reads, multi-byte UTF-8 split mid-character, CRLF,
+`[DONE]` vs EOF, thinking deltas), error mapping for each provider's real error
+envelope, hostname verification including the rejection cases — wildcards that would
+match a bare domain, cross label boundaries, or cover a public suffix — and the URL
+rule that stops a versioned base from becoming `/v1/v1/chat/completions`.
 
 The build also runs two checks that the compiler cannot do for you:
 
@@ -250,9 +363,11 @@ API 21 (Lollipop).
 
 ## Not included
 
-Image and vision input, tool use, and attachments. Each adds a lot of surface area for
-little value on a keyboard-first device this old, and the `Transport`/`Provider` seams
-leave room for them.
+Tool use and audio. Neither fits a keyboard-first client on hardware this old, and the
+`Transport`/`Provider` seams leave room for both.
+
+PDFs can be attached and sent, and the APIs read them, but there is no in-app PDF viewer
+— only images open full-size.
 
 ## Licence
 

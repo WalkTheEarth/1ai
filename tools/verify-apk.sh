@@ -25,7 +25,19 @@ MIN_SDK="${2:-4}"
 
 [ -f "$APK" ] || { echo "ERROR: no such APK: $APK" >&2; exit 1; }
 
-# --------------------------------------------------------------- locate SDK
+# ------------------------------------------------------------------ toolchain
+# Prefer the tools that actually produced the APK. Discovering our own can pick
+# a different build-tools revision than the build used, which makes the two
+# disagree about the very thing being checked.
+RECORDED="$(dirname "$APK")/sdk.env"
+if [ -f "$RECORDED" ]; then
+  # shellcheck disable=SC1090
+  . "$RECORDED"
+  [ -n "${AAPT2:-}" ] && [ -x "$AAPT2" ] || AAPT2=""
+  [ -n "${APKSIGNER:-}" ] && [ -x "$APKSIGNER" ] || APKSIGNER=""
+  echo "Using the toolchain recorded by build.sh (build-tools ${BUILD_TOOLS:-?}, platform ${PLATFORM:-?})"
+fi
+
 find_sdk() {
   for d in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" "$HOME/android-sdk" \
            "/usr/local/lib/android/sdk" "/usr/lib/android-sdk"; do
@@ -35,9 +47,9 @@ find_sdk() {
 }
 SDK="$(find_sdk)" || { echo "ERROR: no Android SDK found. Set ANDROID_HOME." >&2; exit 1; }
 
-BT="$SDK/build-tools/$(ls -1 "$SDK/build-tools" | sort -V | tail -1)"
-AAPT2="$BT/aapt2"
-APKSIGNER="$BT/apksigner"
+BT="$SDK/build-tools/${ANDROID_BUILD_TOOLS:-$(ls -1 "$SDK/build-tools" | sort -V | tail -1)}"
+: "${AAPT2:=$BT/aapt2}"
+: "${APKSIGNER:=$BT/apksigner}"
 
 for t in "$AAPT2" "$APKSIGNER"; do
   [ -f "$t" ] || { echo "ERROR: missing $t" >&2; exit 1; }
@@ -50,12 +62,20 @@ bad()  { printf '  \033[1;31mFAIL\033[0m  %s\n' "$*"; fail=$((fail + 1)); }
 echo "Verifying $APK"
 
 # ------------------------------------------------------- the compatibility floor
-BADGING="$("$AAPT2" dump badging "$APK" 2>/dev/null)"
+BADGING="$("$AAPT2" dump badging "$APK" 2>&1)"
 if echo "$BADGING" | grep -q "sdkVersion:'$MIN_SDK'"; then
   ok "minSdkVersion is $MIN_SDK"
 else
   bad "minSdkVersion is not $MIN_SDK"
-  echo "$BADGING" | grep -E "^sdkVersion" | sed 's/^/        /'
+  # Distinguish "aapt2 could not read the APK" from "the floor actually moved",
+  # because the two have completely different causes and fixes.
+  if ! echo "$BADGING" | grep -q "^package:"; then
+    echo "        aapt2 produced no package line at all, so it could not read the APK:"
+    echo "        $AAPT2"
+    echo "$BADGING" | head -5 | sed 's/^/        /'
+  else
+    echo "$BADGING" | grep -E "^sdkVersion|^targetSdkVersion" | sed 's/^/        /'
+  fi
 fi
 
 if echo "$BADGING" | grep -q "^launchable-activity"; then

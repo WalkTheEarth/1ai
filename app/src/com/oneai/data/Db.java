@@ -7,7 +7,9 @@ import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Conversation and message storage.
@@ -23,7 +25,7 @@ import java.util.List;
 public final class Db extends SQLiteOpenHelper {
 
     private static final String NAME = "oneai.db";
-    private static final int VERSION = 1;
+    private static final int VERSION = 2;
 
     public static final int PREVIEW_LENGTH = 90;
 
@@ -53,13 +55,35 @@ public final class Db extends SQLiteOpenHelper {
                 + "output_tokens INTEGER NOT NULL DEFAULT 0,"
                 + "created_at INTEGER NOT NULL)");
         db.execSQL("CREATE INDEX idx_messages_conversation ON messages(conversation_id)");
+        createAttachments(db);
+    }
+
+    private static void createAttachments(SQLiteDatabase db) {
+        // Only metadata lives here. The bytes go to app-private files, because
+        // base64 blobs in SQLite would inflate the database by a third, make
+        // every conversation query read them, and gain nothing.
+        db.execSQL("CREATE TABLE attachments ("
+                + "_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                + "message_id INTEGER NOT NULL,"
+                + "mime TEXT NOT NULL,"
+                + "file_name TEXT,"
+                + "path TEXT NOT NULL,"
+                + "thumb_path TEXT,"
+                + "width INTEGER NOT NULL DEFAULT 0,"
+                + "height INTEGER NOT NULL DEFAULT 0,"
+                + "size_bytes INTEGER NOT NULL DEFAULT 0,"
+                + "created_at INTEGER NOT NULL)");
+        db.execSQL("CREATE INDEX idx_attachments_message ON attachments(message_id)");
     }
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int from, int to) {
-        // Nothing to migrate yet; v1 is the first shipped schema. When this
-        // changes, migrate rather than drop -- losing someone's conversations
-        // to an app update would be unforgivable.
+        // Migrate, never drop. Losing someone's conversations and attachments
+        // to an app update would be unforgivable, and this is the only place
+        // that decision gets made.
+        if (from < 2) {
+            createAttachments(db);
+        }
     }
 
     // ---------------------------------------------------------- conversations
@@ -145,6 +169,13 @@ public final class Db extends SQLiteOpenHelper {
 
     public void deleteConversation(long id) {
         SQLiteDatabase db = getWritableDatabase();
+        // Files first: once the rows are gone there is nothing left to tell us
+        // which files on disk belonged to this conversation, and they would
+        // accumulate forever.
+        deleteAttachmentFiles(db, "message_id IN (SELECT _id FROM messages WHERE conversation_id = ?)",
+                new String[]{String.valueOf(id)});
+        db.delete("attachments", "message_id IN (SELECT _id FROM messages WHERE conversation_id = ?)",
+                new String[]{String.valueOf(id)});
         db.delete("messages", "conversation_id = ?", new String[]{String.valueOf(id)});
         db.delete("conversations", "_id = ?", new String[]{String.valueOf(id)});
     }
@@ -227,19 +258,117 @@ public final class Db extends SQLiteOpenHelper {
     }
 
     public void deleteMessage(long id) {
-        getWritableDatabase().delete("messages", "_id = ?", new String[]{String.valueOf(id)});
+        SQLiteDatabase db = getWritableDatabase();
+        deleteAttachmentFiles(db, "message_id = ?", new String[]{String.valueOf(id)});
+        db.delete("attachments", "message_id = ?", new String[]{String.valueOf(id)});
+        db.delete("messages", "_id = ?", new String[]{String.valueOf(id)});
     }
 
     /** Removes every message after {@code id}, used by retry and edit-and-resend. */
     public void deleteMessagesAfter(long conversationId, long id) {
-        getWritableDatabase().delete("messages", "conversation_id = ? AND _id > ?",
-                new String[]{String.valueOf(conversationId), String.valueOf(id)});
+        SQLiteDatabase db = getWritableDatabase();
+        String where = "message_id IN (SELECT _id FROM messages "
+                + "WHERE conversation_id = ? AND _id > ?)";
+        String[] args = {String.valueOf(conversationId), String.valueOf(id)};
+        deleteAttachmentFiles(db, where, args);
+        db.delete("attachments", where, args);
+        db.delete("messages", "conversation_id = ? AND _id > ?", args);
     }
 
     public void clearMessages(long conversationId) {
-        getWritableDatabase().delete("messages", "conversation_id = ?",
-                new String[]{String.valueOf(conversationId)});
+        SQLiteDatabase db = getWritableDatabase();
+        String where = "message_id IN (SELECT _id FROM messages WHERE conversation_id = ?)";
+        String[] args = {String.valueOf(conversationId)};
+        deleteAttachmentFiles(db, where, args);
+        db.delete("attachments", where, args);
+        db.delete("messages", "conversation_id = ?", args);
         updatePreview(conversationId, null);
+    }
+
+    // ------------------------------------------------------------ attachments
+
+    public long addAttachment(Attachment a) {
+        ContentValues v = new ContentValues();
+        v.put("message_id", a.messageId);
+        v.put("mime", a.mimeType);
+        v.put("file_name", a.fileName);
+        v.put("path", a.path);
+        v.put("thumb_path", a.thumbPath);
+        v.put("width", a.width);
+        v.put("height", a.height);
+        v.put("size_bytes", a.sizeBytes);
+        v.put("created_at", a.createdAt > 0 ? a.createdAt : System.currentTimeMillis());
+        return getWritableDatabase().insert("attachments", null, v);
+    }
+
+    /** Every attachment on a conversation, grouped by message id. */
+    public Map<Long, List<Attachment>> attachmentsForConversation(long conversationId) {
+        Map<Long, List<Attachment>> out = new HashMap<Long, List<Attachment>>();
+        Cursor c = getReadableDatabase().rawQuery(
+                "SELECT a._id, a.message_id, a.mime, a.file_name, a.path, a.thumb_path,"
+                        + " a.width, a.height, a.size_bytes, a.created_at"
+                        + " FROM attachments a JOIN messages m ON a.message_id = m._id"
+                        + " WHERE m.conversation_id = ? ORDER BY a._id ASC",
+                new String[]{String.valueOf(conversationId)});
+        try {
+            while (c.moveToNext()) {
+                Attachment a = readAttachment(c);
+                List<Attachment> list = out.get(Long.valueOf(a.messageId));
+                if (list == null) {
+                    list = new ArrayList<Attachment>();
+                    out.put(Long.valueOf(a.messageId), list);
+                }
+                list.add(a);
+            }
+        } finally {
+            c.close();
+        }
+        return out;
+    }
+
+    public List<Attachment> attachmentsFor(long messageId) {
+        List<Attachment> out = new ArrayList<Attachment>();
+        Cursor c = getReadableDatabase().query("attachments",
+                new String[]{"_id", "message_id", "mime", "file_name", "path", "thumb_path",
+                        "width", "height", "size_bytes", "created_at"},
+                "message_id = ?", new String[]{String.valueOf(messageId)},
+                null, null, "_id ASC");
+        try {
+            while (c.moveToNext()) {
+                out.add(readAttachment(c));
+            }
+        } finally {
+            c.close();
+        }
+        return out;
+    }
+
+    private static Attachment readAttachment(Cursor c) {
+        Attachment a = new Attachment();
+        a.id = c.getLong(0);
+        a.messageId = c.getLong(1);
+        a.mimeType = c.getString(2);
+        a.fileName = c.isNull(3) ? null : c.getString(3);
+        a.path = c.getString(4);
+        a.thumbPath = c.isNull(5) ? null : c.getString(5);
+        a.width = c.getInt(6);
+        a.height = c.getInt(7);
+        a.sizeBytes = c.getLong(8);
+        a.createdAt = c.getLong(9);
+        return a;
+    }
+
+    /** Removes the files behind a set of attachment rows, then the rows. */
+    private void deleteAttachmentFiles(SQLiteDatabase db, String where, String[] args) {
+        Cursor c = db.query("attachments", new String[]{"path", "thumb_path"}, where, args,
+                null, null, null);
+        try {
+            while (c.moveToNext()) {
+                AttachmentStore.deletePaths(c.getString(0), c.isNull(1) ? null : c.getString(1));
+            }
+        } finally {
+            c.close();
+        }
     }
 
     private static String shorten(String text) {

@@ -99,7 +99,7 @@ public class OpenAiProvider extends Provider {
      * for "/api/v1/v1/chat/completions", so the segment is added only when it is
      * missing.
      */
-    static String completionsUrl(String baseUrl) {
+    public static String completionsUrl(String baseUrl) {
         String base = trimSlash(baseUrl);
         if (base.endsWith("/v1") || base.endsWith("/v1beta")) {
             return base + "/chat/completions";

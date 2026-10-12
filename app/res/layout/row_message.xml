@@ -30,4 +30,15 @@
         android:layout_width="fill_parent"
         android:layout_height="wrap_content" />
 
+    <!-- Thumbnails, populated in code; hidden when the message has none. -->
+    <LinearLayout
+        android:id="@+id/msg_attachments"
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingLeft="4dip"
+        android:paddingRight="4dip"
+        android:paddingBottom="6dip"
+        android:visibility="gone" />
+
 </LinearLayout>

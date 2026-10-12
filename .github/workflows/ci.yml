@@ -17,7 +17,7 @@ concurrency:
 
 env:
   ANDROID_PLATFORM: android-34
-  BUILD_TOOLS: 34.0.0
+  ANDROID_BUILD_TOOLS: 34.0.0
 
 jobs:
   # ---------------------------------------------------------------------
@@ -53,7 +53,7 @@ jobs:
 
       - uses: ./.github/actions/android-sdk
         with:
-          packages: platforms;${{ env.ANDROID_PLATFORM }} build-tools;${{ env.BUILD_TOOLS }}
+          packages: platforms;${{ env.ANDROID_PLATFORM }} build-tools;${{ env.ANDROID_BUILD_TOOLS }}
 
       # Bouncy Castle, R8 and the Mozilla CA bundle are ~29MB of downloads.
       # Cached on a hash of build.sh so bumping a version refetches, and a

@@ -62,110 +62,19 @@ public class SettingsActivity extends BaseActivity {
                     }
                 });
 
-        for (final Provider p : Providers.all()) {
-            section(p.displayName());
+        // One row per provider, opening a detail sheet, rather than four rows
+        // inline. With the compatible endpoints included there are seventeen
+        // providers, and the flat version would have been sixty-odd rows.
+        section("Providers");
+        Provider[] primary = Providers.primary();
+        for (int i = 0; i < primary.length; i++) {
+            providerRow(primary[i]);
+        }
 
-            row(getString(R.string.label_api_key, p.displayName()),
-                    mask(prefs.apiKey(p.id())),
-                    new Runnable() {
-                        @Override
-                        public void run() {
-                            editText(getString(R.string.label_api_key, p.displayName()),
-                                    prefs.apiKey(p.id()), false, false, new TextSink() {
-                                        @Override
-                                        public void accept(String value) {
-                                            prefs.setApiKey(p.id(), value);
-                                            build();
-                                        }
-                                    });
-                        }
-                    });
-
-            row(getString(R.string.label_model, p.displayName()),
-                    orDefault(prefs.modelOverride(p.id()), p.defaultModel()),
-                    new Runnable() {
-                        @Override
-                        public void run() {
-                            editText(getString(R.string.label_model, p.displayName()),
-                                    orEmpty(prefs.modelOverride(p.id())), false, false, new TextSink() {
-                                        @Override
-                                        public void accept(String value) {
-                                            prefs.setModelOverride(p.id(), value);
-                                            build();
-                                        }
-                                    });
-                        }
-                    });
-
-            row(getString(R.string.label_base_url),
-                    orDefault(emptyToNull(prefs.baseUrl(p)), p.defaultBaseUrl()),
-                    new Runnable() {
-                        @Override
-                        public void run() {
-                            editText(getString(R.string.label_base_url),
-                                    prefs.baseUrl(p), false, false, new TextSink() {
-                                        @Override
-                                        public void accept(String value) {
-                                            prefs.setBaseUrl(p.id(), value);
-                                            build();
-                                        }
-                                    });
-                        }
-                    });
-
-            if (com.oneai.provider.AnthropicProvider.ID.equals(p.id())
-                    || com.oneai.provider.OpenAiProvider.ID.equals(p.id())) {
-                final String[] options = com.oneai.provider.OpenAiProvider.ID.equals(p.id())
-                        ? EFFORT_OPENAI : EFFORT_NONE;
-                row(getString(R.string.label_effort), orDefault(prefs.effort(p.id()), "(default)"),
-                        new Runnable() {
-                            @Override
-                            public void run() {
-                                choose(getString(R.string.label_effort), options,
-                                        prefs.effort(p.id()), new ChoiceSink() {
-                                            @Override
-                                            public void accept(String value) {
-                                                prefs.setEffort(p.id(),
-                                                        value != null && value.startsWith("(")
-                                                                ? null : value);
-                                                build();
-                                            }
-                                        });
-                            }
-                        });
-            }
-
-            // Offering a temperature control for a backend whose models
-            // reject it would be offering a button that produces a 400.
-            if (p.supportsTemperature()) {
-                Double t = prefs.temperature(p.id());
-                row(getString(R.string.label_temperature), t == null ? "(provider default)"
-                                : String.valueOf(t),
-                        new Runnable() {
-                            @Override
-                            public void run() {
-                                editText(getString(R.string.label_temperature),
-                                        orEmpty(prefs.temperature(p.id()) == null ? null
-                                                : String.valueOf(prefs.temperature(p.id()))),
-                                        false, true, new TextSink() {
-                                            @Override
-                                            public void accept(String value) {
-                                                if (value.length() == 0) {
-                                                    prefs.setTemperature(p.id(), null);
-                                                } else {
-                                                    try {
-                                                        prefs.setTemperature(p.id(),
-                                                                Double.valueOf(value));
-                                                    } catch (NumberFormatException ignored) {
-                                                        // Leave the old value in place.
-                                                    }
-                                                }
-                                                build();
-                                            }
-                                        });
-                            }
-                        });
-            }
+        section("More providers (OpenAI-compatible)");
+        Provider[] compatible = Providers.compatible();
+        for (int i = 0; i < compatible.length; i++) {
+            providerRow(compatible[i]);
         }
 
         section(R.string.section_generation);
@@ -258,6 +167,178 @@ public class SettingsActivity extends BaseActivity {
                     }
                 });
         help(TransportFactory.describe(prefs));
+    }
+
+    // ------------------------------------------------------------ providers
+
+    private void providerRow(final Provider p) {
+        String key = prefs.apiKey(p.id());
+        String model = effectiveModel(p);
+        StringBuilder value = new StringBuilder();
+        // Never show the key itself. A masked hint is enough to tell one key
+        // from another without putting a secret on screen.
+        value.append(key.length() == 0 ? "no API key" : mask(key));
+        value.append("  \u00b7  ").append(model);
+        row(p.displayName(), value.toString(), new Runnable() {
+            @Override
+            public void run() {
+                providerDetail(p);
+            }
+        });
+
+        if (p instanceof com.oneai.provider.CompatibleProvider) {
+            com.oneai.provider.CompatibleEndpoints.Endpoint e =
+                    ((com.oneai.provider.CompatibleProvider) p).endpoint();
+            // Showing the URL that will actually be called turns a confusing
+            // 404 into something the user can see and fix in one edit.
+            StringBuilder helpText = new StringBuilder();
+            if (e.note.length() > 0) {
+                helpText.append(e.note).append('\n');
+            }
+            helpText.append(resolvedUrl(p));
+            help(helpText.toString());
+        }
+    }
+
+    private String resolvedUrl(Provider p) {
+        com.oneai.provider.ChatRequest probe = new com.oneai.provider.ChatRequest();
+        probe.model = effectiveModel(p);
+        return p.url(prefs.baseUrl(p), probe);
+    }
+
+    private void providerDetail(final Provider p) {
+        java.util.List<CharSequence> labels = new java.util.ArrayList<CharSequence>();
+        labels.add(getString(R.string.label_api_key, p.displayName()));
+        labels.add(getString(R.string.label_model));
+        labels.add(getString(R.string.label_base_url));
+        final boolean wantsEffort = isEffortProvider(p);
+        if (wantsEffort) {
+            labels.add(getString(R.string.label_effort));
+        }
+        final boolean wantsTemperature = p.supportsTemperature();
+        if (wantsTemperature) {
+            labels.add(getString(R.string.label_temperature));
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle(p.displayName())
+                .setItems(labels.toArray(new CharSequence[labels.size()]),
+                        new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface d, int which) {
+                                if (which == 0) {
+                                    editApiKey(p);
+                                } else if (which == 1) {
+                                    editModel(p);
+                                } else if (which == 2) {
+                                    editBaseUrl(p);
+                                } else if (wantsEffort && which == 3) {
+                                    editEffort(p);
+                                } else {
+                                    editTemperature(p);
+                                }
+                            }
+                        })
+                .show();
+    }
+
+    private void editApiKey(final Provider p) {
+        editText(getString(R.string.label_api_key, p.displayName()),
+                prefs.apiKey(p.id()), false, false, new TextSink() {
+                    @Override
+                    public void accept(String value) {
+                        prefs.setApiKey(p.id(), value);
+                        build();
+                    }
+                });
+    }
+
+    private void editModel(final Provider p) {
+        final java.util.List<String> models = p.knownModels();
+        final CharSequence[] items = new CharSequence[models.size() + 1];
+        for (int i = 0; i < models.size(); i++) {
+            items[i] = models.get(i);
+        }
+        items[models.size()] = "Custom\u2026";
+        new AlertDialog.Builder(this)
+                .setTitle(getString(R.string.label_model))
+                .setItems(items, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int which) {
+                        if (which == models.size()) {
+                            editText(getString(R.string.label_custom_model),
+                                    orEmpty(prefs.modelOverride(p.id())), false, false,
+                                    new TextSink() {
+                                        @Override
+                                        public void accept(String value) {
+                                            prefs.setModelOverride(p.id(), value);
+                                            build();
+                                        }
+                                    });
+                        } else {
+                            prefs.setModelOverride(p.id(), models.get(which));
+                            build();
+                        }
+                    }
+                })
+                .show();
+    }
+
+    private void editBaseUrl(final Provider p) {
+        editText(getString(R.string.label_base_url), prefs.baseUrl(p), false, false,
+                new TextSink() {
+                    @Override
+                    public void accept(String value) {
+                        prefs.setBaseUrl(p.id(), value);
+                        build();
+                    }
+                });
+    }
+
+    private void editEffort(final Provider p) {
+        final String[] options = com.oneai.provider.OpenAiProvider.ID.equals(p.id())
+                ? EFFORT_OPENAI : EFFORT_NONE;
+        choose(getString(R.string.label_effort), options, prefs.effort(p.id()),
+                new ChoiceSink() {
+                    @Override
+                    public void accept(String value) {
+                        prefs.setEffort(p.id(),
+                                value != null && value.startsWith("(") ? null : value);
+                        build();
+                    }
+                });
+    }
+
+    private void editTemperature(final Provider p) {
+        Double current = prefs.temperature(p.id());
+        editText(getString(R.string.label_temperature),
+                current == null ? "" : String.valueOf(current), false, true,
+                new TextSink() {
+                    @Override
+                    public void accept(String value) {
+                        if (value.length() == 0) {
+                            prefs.setTemperature(p.id(), null);
+                        } else {
+                            try {
+                                prefs.setTemperature(p.id(), Double.valueOf(value));
+                            } catch (NumberFormatException ignored) {
+                                // Keep whatever was there before.
+                            }
+                        }
+                        build();
+                    }
+                });
+    }
+
+    private static boolean isEffortProvider(Provider p) {
+        return com.oneai.provider.AnthropicProvider.ID.equals(p.id())
+                || com.oneai.provider.OpenAiProvider.ID.equals(p.id());
+    }
+
+    /** The model id that will actually be used, following the fallbacks. */
+    private String effectiveModel(Provider p) {
+        String override = prefs.modelOverride(p.id());
+        return override != null ? override : p.defaultModel();
     }
 
     // ---------------------------------------------------------------- rows

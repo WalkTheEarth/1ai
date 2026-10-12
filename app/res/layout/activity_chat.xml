@@ -35,25 +35,56 @@
     <LinearLayout
         android:layout_width="fill_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
+        android:orientation="vertical"
         android:background="@color/bg_surface"
         android:padding="6dip">
 
-        <EditText
-            android:id="@+id/input"
-            style="@style/MessageInput"
-            android:layout_width="0dip"
+        <!-- Populated in code; hidden whenever nothing is attached. -->
+        <HorizontalScrollView
+            android:id="@+id/pending_scroll"
+            android:layout_width="fill_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:hint="@string/hint_message" />
+            android:visibility="gone"
+            android:scrollbars="none">
 
-        <TextView
-            android:id="@+id/send"
-            style="@style/ActionButton"
-            android:layout_width="wrap_content"
+            <LinearLayout
+                android:id="@+id/pending"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
+
+        <LinearLayout
+            android:layout_width="fill_parent"
             android:layout_height="wrap_content"
-            android:layout_marginLeft="6dip"
-            android:text="@string/action_send" />
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/attach"
+                style="@style/ActionButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="44dip"
+                android:gravity="center"
+                android:text="@string/action_attach" />
+
+            <EditText
+                android:id="@+id/input"
+                style="@style/MessageInput"
+                android:layout_width="0dip"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginLeft="6dip"
+                android:hint="@string/hint_message" />
+
+            <TextView
+                android:id="@+id/send"
+                style="@style/ActionButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="6dip"
+                android:text="@string/action_send" />
+        </LinearLayout>
     </LinearLayout>
 
 </LinearLayout>

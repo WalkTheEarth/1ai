@@ -355,6 +355,20 @@ public final class AttachmentStore {
         }
     }
 
+    /** Deletes stored files by path, for when only the row is available. */
+    public static void deletePaths(String path, String thumbPath) {
+        deleteQuietly(path);
+        deleteQuietly(thumbPath);
+        if (thumbPath != null) {
+            synchronized (THUMBS) {
+                Bitmap cached = THUMBS.remove(thumbPath);
+                if (cached != null && !cached.isRecycled()) {
+                    cached.recycle();
+                }
+            }
+        }
+    }
+
     private static void deleteQuietly(String path) {
         if (path != null) {
             File f = new File(path);

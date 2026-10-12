@@ -1,8 +1,12 @@
 package com.oneai.ui;
 
 import android.app.AlertDialog;
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
+import android.graphics.Bitmap;
 import android.content.DialogInterface;
 import android.os.Bundle;
+import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.ClipboardManager;
@@ -10,12 +14,16 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.widget.AdapterView;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.EditText;
 import android.widget.ListView;
 import android.widget.TextView;
 
 import com.oneai.R;
 import com.oneai.chat.StreamRunner;
+import com.oneai.data.Attachment;
+import com.oneai.data.AttachmentStore;
 import com.oneai.data.Conversation;
 import com.oneai.data.Db;
 import com.oneai.data.Message;
@@ -25,6 +33,7 @@ import com.oneai.provider.Provider;
 import com.oneai.provider.ProviderException;
 import com.oneai.provider.Providers;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /** One conversation, with streaming replies. */
@@ -44,6 +53,13 @@ public class ChatActivity extends BaseActivity {
 
     private StreamRunner runner;
     private final Handler ui = new Handler(Looper.getMainLooper());
+
+    private static final int REQUEST_ATTACH = 1;
+
+    /** Picked but not yet sent. Files are deleted if the screen is left first. */
+    private final List<Attachment> pending = new ArrayList<Attachment>();
+    private LinearLayout pendingStrip;
+    private View pendingScroll;
 
     private final StringBuilder streamingText = new StringBuilder();
     private Message streamingMessage;
@@ -94,6 +110,16 @@ public class ChatActivity extends BaseActivity {
             }
         });
 
+        pendingStrip = (LinearLayout) findViewById(R.id.pending);
+        pendingScroll = findViewById(R.id.pending_scroll);
+
+        findViewById(R.id.attach).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                pickAttachment();
+            }
+        });
+
         sendButton = (TextView) findViewById(R.id.send);
         sendButton.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -117,6 +143,12 @@ public class ChatActivity extends BaseActivity {
         if (runner != null) {
             runner.cancel();
         }
+        // Anything picked but never sent leaves a file on disk with no row
+        // pointing at it, and nothing would ever find it again.
+        for (int i = 0; i < pending.size(); i++) {
+            AttachmentStore.delete(pending.get(i));
+        }
+        pending.clear();
     }
 
     /** Called by ModelPicker after the provider or model changes. */
@@ -136,7 +168,8 @@ public class ChatActivity extends BaseActivity {
     }
 
     private void reload() {
-        adapter.setItems(db.messages(conversation.id));
+        adapter.setItems(db.messages(conversation.id),
+                db.attachmentsForConversation(conversation.id));
         scrollToBottom();
     }
 
@@ -146,17 +179,32 @@ public class ChatActivity extends BaseActivity {
         if (runner.isRunning()) {
             return;
         }
-        final String text = input.getText().toString().trim();
-        if (text.length() == 0) {
+        String text = input.getText().toString().trim();
+        if (text.length() == 0 && pending.isEmpty()) {
             return;
+        }
+        // Sending an image with no text at all is normal; give the model
+        // something to act on rather than an empty turn.
+        if (text.length() == 0) {
+            text = "What is in this?";
         }
 
         Message user = new Message(Message.ROLE_USER, text);
         user.conversationId = conversation.id;
         user.createdAt = System.currentTimeMillis();
         user.id = db.addMessage(user);
+
+        // Attachments are only linked once the message has an id to link to.
+        for (int i = 0; i < pending.size(); i++) {
+            Attachment a = pending.get(i);
+            a.messageId = user.id;
+            a.id = db.addAttachment(a);
+        }
+        pending.clear();
+        renderPending();
+
         db.updatePreview(conversation.id, text);
-        adapter.add(user);
+        reload();
         input.setText("");
         scrollToBottom();
 
@@ -319,6 +367,7 @@ public class ChatActivity extends BaseActivity {
 
     private void showMenu() {
         final CharSequence[] items = {
+                getString(R.string.action_attach_file),
                 getString(R.string.action_model),
                 getString(R.string.action_system_prompt),
                 getString(R.string.action_retry),
@@ -333,18 +382,21 @@ public class ChatActivity extends BaseActivity {
                     public void onClick(DialogInterface d, int which) {
                         switch (which) {
                             case 0:
-                                ModelPicker.show(ChatActivity.this, conversation);
+                                pickAttachment();
                                 break;
                             case 1:
-                                editSystemPrompt();
+                                ModelPicker.show(ChatActivity.this, conversation);
                                 break;
                             case 2:
-                                retry();
+                                editSystemPrompt();
                                 break;
                             case 3:
-                                copyLast();
+                                retry();
                                 break;
                             case 4:
+                                copyLast();
+                                break;
+                            case 5:
                                 confirmClear();
                                 break;
                             default:
@@ -402,6 +454,146 @@ public class ChatActivity extends BaseActivity {
                 })
                 .setNegativeButton(R.string.action_cancel, null)
                 .show();
+    }
+
+    // ---------------------------------------------------------- attachments
+
+    private void pickAttachment() {
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        // "*/*" rather than an image type so PDFs are reachable too. The store
+        // sniffs the actual bytes and refuses anything it cannot send, so a
+        // wide filter costs nothing but a clearer error.
+        intent.setType("*/*");
+        if (android.os.Build.VERSION.SDK_INT >= 19) {
+            intent.putExtra(Intent.EXTRA_MIME_TYPES,
+                    new String[]{"image/*", "application/pdf"});
+        }
+        try {
+            startActivityForResult(intent, REQUEST_ATTACH);
+        } catch (ActivityNotFoundException noPicker) {
+            showMessage("No file picker on this device.");
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int request, int result, Intent data) {
+        if (request != REQUEST_ATTACH || result != RESULT_OK || data == null
+                || data.getData() == null) {
+            return;
+        }
+        final Uri uri = data.getData();
+        final String name = displayName(uri);
+
+        // Shrinking and re-encoding an image is far too slow for the UI thread;
+        // a 12-megapixel photo would freeze the app for seconds.
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    final Attachment a = AttachmentStore.ingest(ChatActivity.this, uri, name);
+                    ui.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            pending.add(a);
+                            renderPending();
+                        }
+                    });
+                } catch (final Exception e) {
+                    ui.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            showMessage(String.valueOf(e.getMessage()));
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    private String displayName(Uri uri) {
+        android.database.Cursor c = null;
+        try {
+            c = getContentResolver().query(uri,
+                    new String[]{android.provider.OpenableColumns.DISPLAY_NAME},
+                    null, null, null);
+            if (c != null && c.moveToFirst()) {
+                int index = c.getColumnIndex(
+                        android.provider.OpenableColumns.DISPLAY_NAME);
+                if (index >= 0 && !c.isNull(index)) {
+                    return c.getString(index);
+                }
+            }
+        } catch (Exception ignored) {
+            // Fall back to the last path segment below.
+        } finally {
+            if (c != null) {
+                c.close();
+            }
+        }
+        String last = uri.getLastPathSegment();
+        return last != null && last.length() > 0 ? last : "attachment";
+    }
+
+    /** Renders the thumbnails of anything picked but not yet sent. */
+    private void renderPending() {
+        pendingStrip.removeAllViews();
+        if (pending.isEmpty()) {
+            pendingScroll.setVisibility(View.GONE);
+            return;
+        }
+        pendingScroll.setVisibility(View.VISIBLE);
+
+        for (int i = 0; i < pending.size(); i++) {
+            final Attachment a = pending.get(i);
+            View chip;
+            Bitmap thumb = AttachmentStore.thumbnail(a);
+            if (thumb != null) {
+                ImageView image = new ImageView(this);
+                image.setImageBitmap(thumb);
+                image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                chip = image;
+            } else {
+                // No thumbnail means it is not an image, so show what it is
+                // instead of a meaningless placeholder graphic.
+                TextView label = new TextView(this);
+                label.setText("PDF");
+                label.setTextSize(11);
+                label.setTextColor(getResources().getColor(R.color.btn_text));
+                label.setBackgroundDrawable(
+                        getResources().getDrawable(R.drawable.btn_bg));
+                label.setGravity(android.view.Gravity.CENTER);
+                chip = label;
+            }
+            chip.setFocusable(true);
+            chip.setClickable(true);
+            chip.setContentDescription("Remove " + a.describe());
+
+            int size = dp(40);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
+            lp.rightMargin = dp(4);
+            chip.setLayoutParams(lp);
+            chip.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    pending.remove(a);
+                    AttachmentStore.delete(a);
+                    renderPending();
+                }
+            });
+            pendingStrip.addView(chip);
+        }
+    }
+
+    private void showMessage(String text) {
+        new AlertDialog.Builder(this)
+                .setMessage(text)
+                .setPositiveButton(R.string.action_ok, null)
+                .show();
+    }
+
+    private int dp(int value) {
+        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
     }
 
     private void confirmClear() {

@@ -1,6 +1,8 @@
 package com.oneai.test;
 
 import com.oneai.provider.AnthropicProvider;
+import com.oneai.provider.CompatibleEndpoints;
+import com.oneai.provider.CompatibleProvider;
 import com.oneai.provider.ChatClient;
 import com.oneai.provider.ChatMessage;
 import com.oneai.provider.ChatRequest;
@@ -8,6 +10,7 @@ import com.oneai.provider.GoogleProvider;
 import com.oneai.provider.OpenAiProvider;
 import com.oneai.provider.Provider;
 import com.oneai.provider.ProviderException;
+import com.oneai.provider.Providers;
 import com.oneai.provider.StreamListener;
 
 import org.json.JSONObject;
@@ -86,7 +89,213 @@ public final class AllTests {
         framing();
         errors();
         tls();
+        attachments();
+        endpoints();
         System.exit(T.report());
+    }
+
+    // ---------------------------------------------------------- attachments
+
+    private static com.oneai.data.Attachment image(String mime, String content) {
+        com.oneai.data.Attachment a = new com.oneai.data.Attachment();
+        a.mimeType = mime;
+        a.fileName = "photo." + (mime.endsWith("png") ? "png" : "jpg");
+        try {
+            a.data = content.getBytes("UTF-8");
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+        return a;
+    }
+
+    private static ChatRequest withAttachment(Provider p, com.oneai.data.Attachment a) {
+        ChatRequest r = new ChatRequest();
+        r.model = p.defaultModel();
+        r.maxTokens = 100;
+        r.messages.add(ChatMessage.user("what is this?", java.util.Collections.singletonList(a)));
+        return r;
+    }
+
+    private static void attachments() {
+        T.section("Attachments");
+
+        T.test("Anthropic sends an image source block", () -> {
+            try {
+                ChatRequest r = withAttachment(new AnthropicProvider(),
+                        image("image/jpeg", "JPEGBYTES"));
+                org.json.JSONArray content = new JSONObject(new AnthropicProvider().body(r))
+                        .getJSONArray("messages").getJSONObject(0).getJSONArray("content");
+                // Text first, then the image: the documented convention.
+                T.eq("text", content.getJSONObject(0).getString("type"), "text block first");
+                org.json.JSONObject img = content.getJSONObject(1);
+                T.eq("image", img.getString("type"), "block type");
+                org.json.JSONObject src = img.getJSONObject("source");
+                T.eq("base64", src.getString("type"), "source type");
+                T.eq("image/jpeg", src.getString("media_type"), "media_type is snake_case");
+                T.eq("JPEGBYTES", new String(Pem.decodeBase64(src.getString("data")), "UTF-8"),
+                        "raw base64, no data: prefix");
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        });
+
+        T.test("Anthropic sends a PDF as a document block", () -> {
+            try {
+                ChatRequest r = withAttachment(new AnthropicProvider(),
+                        image("application/pdf", "PDFBYTES"));
+                org.json.JSONArray content = new JSONObject(new AnthropicProvider().body(r))
+                        .getJSONArray("messages").getJSONObject(0).getJSONArray("content");
+                T.eq("document", content.getJSONObject(1).getString("type"), "document block");
+                T.eq("application/pdf",
+                        content.getJSONObject(1).getJSONObject("source").getString("media_type"),
+                        "pdf media type");
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        });
+
+        T.test("OpenAI nests image_url as an object with a data URL", () -> {
+            try {
+                ChatRequest r = withAttachment(new OpenAiProvider(),
+                        image("image/png", "PNGBYTES"));
+                org.json.JSONArray content = new JSONObject(new OpenAiProvider().body(r))
+                        .getJSONArray("messages").getJSONObject(0).getJSONArray("content");
+                org.json.JSONObject part = content.getJSONObject(1);
+                T.eq("image_url", part.getString("type"), "part type");
+                // The single most confusable detail: on chat completions this is
+                // an object, on /v1/responses it is a bare string.
+                T.isTrue(part.get("image_url") instanceof org.json.JSONObject,
+                        "image_url must be an object here");
+                T.contains(part.getJSONObject("image_url").getString("url"),
+                        "data:image/png;base64,", "data URL with prefix");
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        });
+
+        T.test("OpenAI sends a PDF as a file part nested under 'file'", () -> {
+            try {
+                ChatRequest r = withAttachment(new OpenAiProvider(),
+                        image("application/pdf", "PDFBYTES"));
+                org.json.JSONArray content = new JSONObject(new OpenAiProvider().body(r))
+                        .getJSONArray("messages").getJSONObject(0).getJSONArray("content");
+                org.json.JSONObject part = content.getJSONObject(1);
+                T.eq("file", part.getString("type"), "part type");
+                T.contains(part.getJSONObject("file").getString("file_data"),
+                        "data:application/pdf;base64,", "file_data");
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        });
+
+        T.test("Google uses camelCase inlineData", () -> {
+            try {
+                ChatRequest r = withAttachment(new GoogleProvider(),
+                        image("image/jpeg", "JPEGBYTES"));
+                org.json.JSONArray parts = new JSONObject(new GoogleProvider().body(r))
+                        .getJSONArray("contents").getJSONObject(0).getJSONArray("parts");
+                T.eq("what is this?", parts.getJSONObject(0).getString("text"), "text first");
+                org.json.JSONObject blob = parts.getJSONObject(1).getJSONObject("inlineData");
+                T.eq("image/jpeg", blob.getString("mimeType"), "mimeType is camelCase");
+                T.eq("JPEGBYTES", new String(Pem.decodeBase64(blob.getString("data")), "UTF-8"),
+                        "raw base64");
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        });
+
+        T.test("a message with no attachments stays a plain string", () -> {
+            try {
+                // The array form is only used when it has to be: it is noisier
+                // and there is no reason to send it for a text-only turn.
+                ChatRequest r = new ChatRequest();
+                r.model = "m";
+                r.messages.add(ChatMessage.user("hello"));
+                String body = new AnthropicProvider().body(r);
+                T.isTrue(new JSONObject(body).getJSONArray("messages")
+                        .getJSONObject(0).get("content") instanceof String,
+                        "Anthropic content is a string");
+                T.isTrue(new JSONObject(new OpenAiProvider().body(r)).getJSONArray("messages")
+                        .getJSONObject(0).get("content") instanceof String,
+                        "OpenAI content is a string");
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        });
+
+        T.test("attachments are never sent on assistant turns", () -> {
+            try {
+                // Anthropic rejects image blocks in assistant turns outright,
+                // and replaying a model's own output as media is meaningless.
+                ChatRequest r = new ChatRequest();
+                r.model = "m";
+                r.messages.add(new ChatMessage(ChatMessage.ASSISTANT, "hi",
+                        java.util.Collections.singletonList(image("image/jpeg", "X"))));
+                T.isTrue(new JSONObject(new AnthropicProvider().body(r))
+                        .getJSONArray("messages").getJSONObject(0).get("content")
+                        instanceof String, "Anthropic drops them");
+                T.isTrue(new JSONObject(new GoogleProvider().body(r))
+                        .getJSONArray("contents").getJSONObject(0)
+                        .getJSONArray("parts").length() == 1, "Google drops them");
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        });
+    }
+
+    // ------------------------------------------------------------ endpoints
+
+    private static void endpoints() {
+        T.section("Compatible endpoints");
+
+        T.test("a base URL that already has /v1 is not doubled", () -> {
+            // Most compatible services document a versioned base; OpenAI's own
+            // does not. Appending blindly asks OpenRouter for /v1/v1/...
+            T.eq("https://openrouter.ai/api/v1/chat/completions",
+                    OpenAiProvider.completionsUrl("https://openrouter.ai/api/v1"), "versioned");
+            T.eq("https://api.openai.com/v1/chat/completions",
+                    OpenAiProvider.completionsUrl("https://api.openai.com"), "unversioned");
+            T.eq("https://api.openai.com/v1/chat/completions",
+                    OpenAiProvider.completionsUrl("https://api.openai.com/v1"), "already has it");
+            T.eq("https://api.groq.com/openai/v1/chat/completions",
+                    OpenAiProvider.completionsUrl("https://api.groq.com/openai/v1/"), "trailing slash");
+        });
+
+        T.test("every preset produces a well-formed completions URL", () -> {
+            for (int i = 0; i < CompatibleEndpoints.ALL.length; i++) {
+                CompatibleEndpoints.Endpoint e = CompatibleEndpoints.ALL[i];
+                String url = OpenAiProvider.completionsUrl(e.baseUrl);
+                T.contains(url, "/chat/completions", e.id + " ends correctly");
+                T.isTrue(!url.contains("/v1/v1/"), e.id + " does not double the version");
+                T.isTrue(e.name != null && e.name.length() > 0, e.id + " has a name");
+            }
+        });
+
+        T.test("compatible providers inherit the OpenAI wire format", () -> {
+            try {
+                CompatibleProvider p = new CompatibleProvider(
+                        CompatibleEndpoints.byId("openrouter"));
+                T.eq("openrouter", p.id(), "id");
+                T.isTrue(new JSONObject(p.body(req(p))).has("max_completion_tokens"),
+                        "uses the OpenAI body");
+                T.contains(p.url(p.defaultBaseUrl(), req(p)),
+                        "openrouter.ai/api/v1/chat/completions", "url");
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        });
+
+        T.test("registry resolves every provider by id", () -> {
+            T.eq(Integer.valueOf(Providers.primary().length + Providers.compatible().length),
+                    Integer.valueOf(Providers.all().length), "all() covers both groups");
+            for (int i = 0; i < Providers.all().length; i++) {
+                Provider p = Providers.all()[i];
+                T.isTrue(Providers.byId(p.id()) == p, "resolve " + p.id());
+            }
+            T.isTrue(Providers.byId("nope") == null, "unknown id is null");
+            T.isTrue(Providers.byIdOrDefault("nope") == Providers.primary()[0],
+                    "unknown id falls back to the default");
+        });
     }
 
     // ------------------------------------------------------------------ TLS

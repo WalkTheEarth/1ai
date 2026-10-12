@@ -47,11 +47,16 @@ find_sdk() {
 }
 SDK="$(find_sdk)" || die "no Android SDK found. Set ANDROID_HOME."
 
-BT_VER="$(ls -1 "$SDK/build-tools" 2>/dev/null | sort -V | tail -1)"
+# Pinnable so CI and a laptop build with the same toolchain. Without this both
+# sides just take the newest, which differ between a developer machine and a
+# runner image, and "it passed locally" stops meaning anything.
+BT_VER="${ANDROID_BUILD_TOOLS:-$(ls -1 "$SDK/build-tools" 2>/dev/null | sort -V | tail -1)}"
 [ -n "$BT_VER" ] || die "no build-tools in $SDK"
+[ -d "$SDK/build-tools/$BT_VER" ] || die "build-tools $BT_VER not installed in $SDK"
 BT="$SDK/build-tools/$BT_VER"
 
-PLATFORM="$(ls -1 "$SDK/platforms" | sort -V | tail -1)"
+PLATFORM="${ANDROID_PLATFORM:-$(ls -1 "$SDK/platforms" | sort -V | tail -1)}"
+[ -d "$SDK/platforms/$PLATFORM" ] || die "platform $PLATFORM not installed in $SDK"
 ANDROID_JAR="$SDK/platforms/$PLATFORM/android.jar"
 [ -f "$ANDROID_JAR" ] || die "$ANDROID_JAR missing"
 
@@ -268,6 +273,16 @@ build() {
   # Castle jars; this can.
   say "[8/8] verifying the APK"
   "$ROOT/tools/verify-apk.sh" "$OUT/1ai.apk" "$MIN_SDK"
+
+  # Record the exact toolchain used, so the verifier inspects the APK with the
+  # same tools that produced it rather than rediscovering its own.
+  cat > "$OUT/sdk.env" <<SDKENV
+AAPT2=$AAPT2
+APKSIGNER=$APKSIGNER
+MIN_SDK=$MIN_SDK
+BUILD_TOOLS=$BT_VER
+PLATFORM=$PLATFORM
+SDKENV
 
   echo
   say "Built $OUT/1ai.apk  ($(du -h "$OUT/1ai.apk" | cut -f1))"

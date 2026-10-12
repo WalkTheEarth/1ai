@@ -44,6 +44,11 @@
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize" />
 
         <activity
+            android:name=".ui.ImageViewerActivity"
+            android:label="@string/attached_to"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize" />
+
+        <activity
             android:name=".ui.SettingsActivity"
             android:label="@string/title_settings"
             android:windowSoftInputMode="adjustResize"

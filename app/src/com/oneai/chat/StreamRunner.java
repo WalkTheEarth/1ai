@@ -4,6 +4,8 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 
+import com.oneai.data.Attachment;
+import com.oneai.data.AttachmentStore;
 import com.oneai.data.Conversation;
 import com.oneai.data.Message;
 import com.oneai.data.Prefs;
@@ -18,7 +20,9 @@ import com.oneai.provider.ProviderException;
 import com.oneai.provider.Providers;
 import com.oneai.provider.StreamListener;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -85,7 +89,6 @@ public final class StreamRunner {
         final String apiKey = prefs.apiKey(provider.id());
         final String baseUrl = prefs.baseUrl(provider);
         final String model = resolveModel(prefs, conversation, provider);
-        final ChatRequest request = buildRequest(prefs, conversation, provider, model, history);
 
         if (apiKey.length() == 0) {
             callback.onError(new ProviderException(ProviderException.NO_STATUS, null, null,
@@ -106,6 +109,8 @@ public final class StreamRunner {
                 // collected here and handed over with the completion callback.
                 final int[] usage = new int[2];
                 try {
+                    ChatRequest request = buildRequest(prefs, conversation, provider, model,
+                            history, loadAttachments(conversation, history));
                     new ChatClient(transport).stream(provider, apiKey, baseUrl, request,
                             new StreamListener() {
                                 @Override
@@ -211,8 +216,75 @@ public final class StreamRunner {
         return override != null ? override : provider.defaultModel();
     }
 
+    /**
+     * Most recent messages whose attachments are re-sent with a request.
+     *
+     * <p>History is re-sent in full on every turn, images included, because all
+     * three APIs are stateless. On a phone with a heap measured in tens of
+     * megabytes that gets expensive fast, so only the newest few messages carry
+     * their images; older ones keep their text and lose their pictures. Better
+     * to send less than to be killed by the out-of-memory killer mid-request.
+     */
+    private static final int MAX_ATTACHED_MESSAGES = 8;
+
+    /** Reads attachment bytes for the newest user turns that have any. */
+    private Map<Long, List<Attachment>> loadAttachments(Conversation conversation,
+                                                        List<Message> history) {
+        Map<Long, List<Attachment>> stored =
+                Store.db(appContext).attachmentsForConversation(conversation.id);
+        if (stored.isEmpty()) {
+            return stored;
+        }
+
+        int budget = MAX_ATTACHED_MESSAGES;
+        for (int i = history.size() - 1; i >= 0 && budget > 0; i--) {
+            Message m = history.get(i);
+            List<Attachment> list = stored.get(Long.valueOf(m.id));
+            if (list == null || list.isEmpty()) {
+                continue;
+            }
+            budget--;
+            for (int j = 0; j < list.size(); j++) {
+                Attachment a = list.get(j);
+                try {
+                    a.data = AttachmentStore.read(a);
+                } catch (Exception e) {
+                    // A file that has gone missing should cost the image, not
+                    // the whole message.
+                    a.data = null;
+                }
+            }
+        }
+
+        // Anything beyond the budget keeps its row but loses its bytes, so the
+        // provider sends the turn as text only.
+        java.util.Iterator<Map.Entry<Long, List<Attachment>>> it = stored.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<Long, List<Attachment>> e = it.next();
+            List<Attachment> list = e.getValue();
+            boolean anyLoaded = false;
+            for (int j = 0; j < list.size(); j++) {
+                if (list.get(j).data != null) {
+                    anyLoaded = true;
+                    break;
+                }
+            }
+            if (!anyLoaded) {
+                it.remove();
+            }
+        }
+        return stored;
+    }
+
     static ChatRequest buildRequest(Prefs prefs, Conversation conversation, Provider provider,
                                     String model, List<Message> history) {
+        return buildRequest(prefs, conversation, provider, model, history,
+                new HashMap<Long, List<Attachment>>());
+    }
+
+    static ChatRequest buildRequest(Prefs prefs, Conversation conversation, Provider provider,
+                                    String model, List<Message> history,
+                                    Map<Long, List<Attachment>> attachments) {
         ChatRequest r = new ChatRequest();
         r.model = model;
         r.maxTokens = prefs.maxTokens();
@@ -231,9 +303,13 @@ public final class StreamRunner {
             if (m.isError()) {
                 continue;
             }
+            List<Attachment> files = attachments.get(Long.valueOf(m.id));
             if (Message.ROLE_USER.equals(m.role)) {
-                r.messages.add(ChatMessage.user(m.content));
+                r.messages.add(new ChatMessage(ChatMessage.USER, m.content, files));
             } else if (Message.ROLE_ASSISTANT.equals(m.role)) {
+                // Never with attachments: Anthropic rejects image blocks in
+                // assistant turns, and no API expects its own output replayed
+                // back as media.
                 r.messages.add(ChatMessage.assistant(m.content));
             }
         }
