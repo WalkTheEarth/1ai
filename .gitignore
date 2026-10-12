@@ -35,3 +35,6 @@ release-key-password.txt
 *.iml
 .DS_Store
 *~
+
+# Local builds handed out for sideloading
+dist/
