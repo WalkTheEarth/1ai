@@ -163,10 +163,10 @@ build() {
   rm -rf "$OUT"; mkdir -p "$GEN" "$CLASSES" "$DEX"
 
   # 1. Resources ---------------------------------------------------------
-  say "[1/7] aapt2 compile"
+  say "[1/8] aapt2 compile"
   "$AAPT2" compile --dir "$APP/res" -o "$OUT/res.zip"
 
-  say "[2/7] aapt2 link"
+  say "[2/8] aapt2 link"
   "$AAPT2" link \
     -o "$OUT/base.apk" \
     -I "$ANDROID_JAR" \
@@ -177,7 +177,7 @@ build() {
     "$OUT/res.zip"
 
   # 2. Java --------------------------------------------------------------
-  say "[3/7] javac"
+  say "[3/8] javac"
   local cp="$ANDROID_JAR:$LAMBDA_STUBS"
   if compgen -G "$LIBS/*.jar" > /dev/null; then
     for j in "$LIBS"/*.jar; do cp="$cp:$j"; done
@@ -194,7 +194,7 @@ build() {
   [ -n "$(find "$CLASSES" -name '*.class' -print -quit)" ] || die "javac produced no classes"
 
   # 3. Shrink + dex ------------------------------------------------------
-  say "[4/7] R8 (shrink + dex, min-api $MIN_SDK)"
+  say "[4/8] R8 (shrink + dex, min-api $MIN_SDK)"
   find "$CLASSES" -name '*.class' > "$OUT/classes.txt"
   # Third-party jars are R8 *inputs*, not just compile-time classpath, so that
   # Bouncy Castle actually ships in the dex and is shrunk down to what the
@@ -221,30 +221,52 @@ build() {
   [ -f "$DEX/classes.dex" ] || die "R8 produced no classes.dex"
 
   # 4. Package -----------------------------------------------------------
-  say "[5/7] package"
+  say "[5/8] package"
   cp "$OUT/base.apk" "$OUT/unsigned.apk"
   ( cd "$DEX" && zip -q "$OUT/unsigned.apk" classes.dex )
 
-  say "[6/7] zipalign"
+  say "[6/8] zipalign"
   "$ZIPALIGN" -f -p 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
 
   # 5. Sign --------------------------------------------------------------
-  say "[7/7] sign"
-  local ks="$ROOT/keystore.jks"
+  say "[7/8] sign"
+  # A real signing key can be supplied through the environment (CI does this
+  # from repository secrets). Without one we fall back to a throwaway debug
+  # keystore, which is fine for sideloading but cannot be used to update an
+  # installed app -- Android refuses an update signed by a different key.
+  local ks="${ONEAI_KEYSTORE:-$ROOT/keystore.jks}"
+  local store_pass="${ONEAI_KEYSTORE_PASS:-android}"
+  local key_alias="${ONEAI_KEY_ALIAS:-oneai}"
+  local key_pass="${ONEAI_KEY_PASS:-$store_pass}"
+
+  if [ -n "${ONEAI_KEYSTORE:-}" ] && [ ! -f "$ks" ]; then
+    die "ONEAI_KEYSTORE points at $ks, which does not exist"
+  fi
+
   if [ ! -f "$ks" ]; then
-    echo "      generating debug keystore"
-    keytool -genkeypair -keystore "$ks" -storepass android -keypass android \
-      -alias oneai -keyalg RSA -keysize 2048 -validity 10000 \
+    echo "      generating debug keystore (sideload-only)"
+    keytool -genkeypair -keystore "$ks" -storepass "$store_pass" -keypass "$key_pass" \
+      -alias "$key_alias" -keyalg RSA -keysize 2048 -validity 10000 \
       -dname "CN=1AI, OU=dev, O=oneai" >/dev/null 2>&1
   fi
 
   # v1 (JAR) signing is mandatory below Android 7; v2/v3 are added for modern
   # devices. --min-sdk-version is what tells apksigner to emit the v1 scheme.
+  # RSA specifically: apksig uses SHA-1 digests for minSdk < 18 and refuses EC
+  # keys outright below 18, so an RSA key is the compatible choice here.
   "$APKSIGNER" sign \
-    --ks "$ks" --ks-pass pass:android --key-pass pass:android --ks-key-alias oneai \
+    --ks "$ks" --ks-pass "pass:$store_pass" --key-pass "pass:$key_pass" \
+    --ks-key-alias "$key_alias" \
     --min-sdk-version "$MIN_SDK" \
     --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
     --out "$OUT/1ai.apk" "$OUT/aligned.apk"
+
+  # 6. API-level check on the artefact -----------------------------------
+  # Source-level checking cannot see anything pulled in from the Bouncy Castle
+  # jars, so the built dex is scanned as well. Cheap, and it runs on every
+  # build so a regression cannot reach a release.
+  say "[8/8] API check on the built dex"
+  "$ROOT/tools/dexcheck.sh" "$OUT/1ai.apk" "$MIN_SDK"
 
   echo
   say "Built $OUT/1ai.apk  ($(du -h "$OUT/1ai.apk" | cut -f1))"

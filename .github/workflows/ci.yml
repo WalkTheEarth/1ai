@@ -1,0 +1,176 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Nothing here writes to the repository.
+permissions:
+  contents: read
+
+# A new push supersedes an in-flight run on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ANDROID_PLATFORM: android-34
+  BUILD_TOOLS: 34.0.0
+
+jobs:
+  # ---------------------------------------------------------------------
+  # The provider layer has no Android types in it, so it runs on a plain JVM
+  # with no SDK and no emulator. This is the fastest useful signal and it
+  # catches essentially all wire-format regressions.
+  # ---------------------------------------------------------------------
+  test:
+    name: Provider tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Run the suite
+        run: ./test/run.sh
+
+  # ---------------------------------------------------------------------
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install "platforms;$ANDROID_PLATFORM" "build-tools;$BUILD_TOOLS"
+
+      # Bouncy Castle, R8 and the Mozilla CA bundle are ~29MB of downloads.
+      # Cached on a hash of build.sh so bumping a version refetches, and a
+      # change to anything else does not.
+      - name: Cache build dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            libs
+            tools/*.jar
+            app/res/raw/cacert.pem
+          key: deps-${{ runner.os }}-${{ hashFiles('build.sh') }}
+
+      # build.sh runs the API-4 source deny-list and the DEX scan itself, so a
+      # violation fails the build rather than being reported politely.
+      - name: Build
+        run: ./build.sh
+
+      # These assertions are the whole point of the project. If the floor ever
+      # silently moves, the build should go red rather than quietly shipping
+      # an app that no longer installs where it is supposed to.
+      - name: Assert the compatibility floor
+        run: |
+          set -e
+          BADGING="$(aapt2 dump badging build/1ai.apk)"
+          echo "$BADGING" | grep -q "sdkVersion:'4'" \
+            || { echo "::error::minSdkVersion is no longer 4"; echo "$BADGING"; exit 1; }
+          echo "$BADGING" | grep -q "launchable-activity" \
+            || { echo "::error::no launcher activity"; exit 1; }
+          echo "minSdkVersion 4 and a launcher activity are both present"
+
+      - name: Verify signature
+        run: |
+          apksigner verify --min-sdk-version 4 -v build/1ai.apk
+          apksigner verify --min-sdk-version 4 -v build/1ai.apk | grep -q "v1 scheme.*true" \
+            || { echo "::error::v1 (JAR) signing missing - will not install below Android 7"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 1ai-apk
+          path: build/1ai.apk
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------
+  # Building is not the same as running. This installs the actual artefact on
+  # real Android runtimes and asserts it comes up without a crash.
+  #
+  # API 18 is Android 4.3, which is the level the BlackBerry 10 Android runtime
+  # sits at; API 21 covers the ART side, where the bundled TLS path is used.
+  # ---------------------------------------------------------------------
+  emulator:
+    name: Smoke test on Android API ${{ matrix.api }}
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api: 18
+            arch: x86
+            target: default
+            image: system-images;android-18;default;x86
+          - api: 21
+            arch: x86_64
+            target: default
+            image: system-images;android-21;default;x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install emulator
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install "emulator" "platform-tools" "${{ matrix.image }}"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: 1ai-apk
+
+      - name: Launch and check for crashes
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: ${{ matrix.target }}
+          arch: ${{ matrix.arch }}
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          disable-animations: true
+          script: |
+            set -e
+            adb install -r 1ai.apk
+            adb logcat -c
+            adb shell am start -n com.oneai/.ui.ChatsActivity
+            sleep 15
+
+            # Android has no pidof before API 24, so the process is found via ps.
+            if ! adb shell ps | grep -q com.oneai; then
+              echo "::error::the app is not running after launch"
+              adb logcat -d | tail -80
+              exit 1
+            fi
+
+            # NoSuchMethodError and friends are exactly what shipping to API 4
+            # risks, and they only ever show up at runtime.
+            if adb logcat -d | grep -E "FATAL EXCEPTION|VerifyError|NoSuchMethodError|NoClassDefFoundError|Resources\\\$NotFoundException"; then
+              echo "::error::the app reported a runtime error on API ${{ matrix.api }}"
+              adb logcat -d | tail -80
+              exit 1
+            fi
+
+            echo "launched cleanly on API ${{ matrix.api }}"
