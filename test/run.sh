@@ -13,9 +13,26 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/build/test"
-JAR="$ROOT/test/libs/json-20250107.jar"
 
-[ -f "$JAR" ] || { echo "missing $JAR"; exit 1; }
+# Android supplies org.json at runtime; the desktop JVM does not, so the
+# reference implementation is fetched here. It is checked in nowhere and
+# verified on download, so a fresh clone can run the suite with no setup step.
+JSON_VERSION=20250107
+JAR="$ROOT/test/libs/json-$JSON_VERSION.jar"
+JSON_URL="https://repo1.maven.org/maven2/org/json/json/$JSON_VERSION/json-$JSON_VERSION.jar"
+
+if [ ! -f "$JAR" ]; then
+  echo "fetching json-$JSON_VERSION.jar"
+  mkdir -p "$(dirname "$JAR")"
+  curl -fsSL "$JSON_URL" -o "$JAR.tmp" || { echo "download failed: $JSON_URL"; exit 1; }
+  want="$(curl -fsSL "$JSON_URL.sha1" | tr -d '[:space:]')"
+  got="$(sha1sum "$JAR.tmp" | awk '{print $1}')"
+  if [ -n "$want" ] && [ "$want" != "$got" ]; then
+    rm -f "$JAR.tmp"; echo "checksum mismatch: expected $want got $got"; exit 1
+  fi
+  mv "$JAR.tmp" "$JAR"
+  echo "  ok $(basename "$JAR") (sha1 verified)"
+fi
 
 rm -rf "$OUT"; mkdir -p "$OUT/classes"
 

@@ -4,7 +4,7 @@ build/
 # Downloaded dependencies. build.sh fetches and checksum-verifies all of
 # these, so committing them would only add ~29MB of binaries that would then
 # silently drift from their published versions.
-libs/
+/libs/
 
 # tools/ holds downloaded binaries *and* hand-written source (apicheck.py), so
 # only the jars are ignored -- ignoring the directory would drop the API-level
