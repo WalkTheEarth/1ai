@@ -3,6 +3,8 @@ package com.oneai.data;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import com.oneai.R;
+
 import com.oneai.provider.Provider;
 import com.oneai.provider.Providers;
 
@@ -29,8 +31,10 @@ public final class Prefs {
     public static final String TLS_NEVER = "never";
 
     private final SharedPreferences sp;
+    private final Context context;
 
     public Prefs(Context context) {
+        this.context = context.getApplicationContext();
         this.sp = context.getSharedPreferences(FILE, Context.MODE_PRIVATE);
     }
 
@@ -101,9 +105,26 @@ public final class Prefs {
 
     // --------------------------------------------------------------- global
 
+    /**
+     * The system prompt to send.
+     *
+     * <p>Falls back to a bundled default rather than to nothing. An empty
+     * prompt is not neutral -- it leaves the model to guess at tone and length,
+     * which on a small screen is usually the wrong guess -- so clearing the
+     * field restores the default rather than disabling it.
+     */
     public String systemPrompt() {
         String s = sp.getString("system_prompt", "");
-        return s == null ? "" : s;
+        if (s == null || s.trim().length() == 0) {
+            return context.getString(R.string.default_system_prompt);
+        }
+        return s;
+    }
+
+    /** True when the user has not set a prompt of their own. */
+    public boolean usingDefaultSystemPrompt() {
+        String s = sp.getString("system_prompt", "");
+        return s == null || s.trim().length() == 0;
     }
 
     public void setSystemPrompt(String prompt) {

@@ -178,7 +178,7 @@ public final class GoogleProvider extends Provider {
                     JSONObject cand = candidates.optJSONObject(0);
                     if (cand != null) {
                         if (cand.has("finishReason") && !cand.isNull("finishReason")) {
-                            stopReason = cand.optString("finishReason", null);
+                            stopReason = Json.str(cand, "finishReason");
                         }
                         JSONObject content = cand.optJSONObject("content");
                         if (content != null) {
@@ -195,7 +195,7 @@ public final class GoogleProvider extends Provider {
                                     if (!part.has("text") || part.isNull("text")) {
                                         continue;
                                     }
-                                    String text = part.optString("text", "");
+                                    String text = Json.strOrEmpty(part, "text");
                                     if (text.length() == 0) {
                                         continue;
                                     }
@@ -218,7 +218,7 @@ public final class GoogleProvider extends Provider {
                     throw new IOException(new ProviderException(
                             ProviderException.NO_STATUS, null, null,
                             "Google blocked this prompt ("
-                                    + feedback.optString("blockReason") + ").", false));
+                                    + Json.strOrEmpty(feedback, "blockReason") + ").", false));
                 }
             }
 
@@ -250,8 +250,8 @@ public final class GoogleProvider extends Provider {
             JSONObject o = new JSONObject(responseBody);
             JSONObject e = o.optJSONObject("error");
             if (e != null) {
-                detail = e.optString("message", null);
-                code = e.optString("status", null);
+                detail = Json.str(e, "message");
+                code = Json.str(e, "status");
             }
         } catch (JSONException ignored) {
             // Not JSON; fall through.

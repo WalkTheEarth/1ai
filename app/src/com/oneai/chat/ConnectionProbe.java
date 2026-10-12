@@ -54,9 +54,6 @@ public final class ConnectionProbe {
 
     public static Result run(Context context, Prefs prefs, Provider provider) {
         Result result = new Result();
-        result.transport = prefsUnderLegacyTls(prefs)
-                ? "bundled TLS 1.2 (Bouncy Castle)"
-                : "platform TLS";
 
         // Reuse the provider's own URL and header builders rather than
         // hand-rolling a request here, so the probe exercises exactly the code
@@ -80,9 +77,12 @@ public final class ConnectionProbe {
         }
 
         Conn conn = null;
+        Transport transport = TransportFactory.create(context, prefs);
         try {
-            conn = TransportFactory.create(context, prefs)
-                    .open("POST", url, headers, body.getBytes("UTF-8"));
+            conn = transport.open("POST", url, headers, body.getBytes("UTF-8"));
+            // Report the transport that actually carried the request, not the
+            // one that was configured. They differ whenever a fallback engaged.
+            result.transport = transport.name();
             result.status = conn.status();
             result.reachedServer = true;
             drain(conn.body());

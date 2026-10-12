@@ -198,36 +198,54 @@ Verified by running the app, not by inspection.
 | Keyboard navigation | ✅ tested on API 10 | ✅ | ✅ | ✅ |
 | **Live API calls** | ❌ | ❌ | ✅ | ✅ tested |
 
-### The networking floor is Android 4.1, and it is a hard one
+### TLS: how the floor was lowered, and where it still is
 
-Anthropic, OpenAI and Google all require **TLS 1.2**. Android only gained TLS 1.2 in
-API 16, and only enables it by default in API 20. Below API 16 there is no TLS 1.2 on the
-device at all, so those hosts cannot be reached however the app is written.
+Anthropic, OpenAI and Google all require **TLS 1.2**. Android only gained TLS 1.2 in API
+16, and only enables it by default in API 20 — so on Android 4.1–4.4 the capability is
+present but switched off, and below 4.1 it does not exist at all. Servers are moving the
+other way too: **DeepSeek now refuses TLS 1.0 and 1.1 outright**, so a phone offering
+only those cannot reach it however correct the app is.
 
-This was addressed head-on rather than accepted: the app bundles **Bouncy Castle's
-pure-Java TLS 1.2** (`bctls`) and a current **Mozilla CA bundle** (121 roots, including
-ISRG Root X1 and GTS Root R1, which old devices predate). `BcTlsTransport` implements the
-handshake, SNI, chain validation and RFC 6125 hostname checking, then does its own
-HTTP/1.1 — request writing, response parsing and chunked transfer decoding — because
-there is no `HttpsURLConnection` equivalent underneath it.
+Two stacks are therefore shipped and chained:
 
-**It works, and it does not solve the problem.** Measured, not assumed:
+1. **The platform stack**, preferred wherever it works — it is the device's own tested
+   implementation and costs nothing in APK size. On API 16–19 every protocol the runtime
+   supports is explicitly enabled, which is what switches TLS 1.2 on there.
+2. **Bouncy Castle's pure-Java TLS 1.2** (`bctls`) behind it, plus a current **Mozilla CA
+   bundle** (121 roots including ISRG Root X1 and GTS Root R1, which old devices predate).
+   `BcTlsTransport` does the handshake, SNI, chain validation and RFC 6125 hostname
+   checking, then its own HTTP/1.1 — request writing, response parsing and chunked
+   transfer decoding — because there is no `HttpsURLConnection` underneath it.
 
-* On **Android 5.0 (ART)** it completes a real handshake with `api.anthropic.com` and
-  returns HTTP 401 for a deliberately invalid key — the whole stack, verified end to end.
-* On **Android 2.3 (Dalvik)** it fails with `VerifyError: org.bouncycastle.tls.TlsUtils`.
-  This is not a shrinking artefact: plain `d8` with **no R8 at all** produces the same
-  failure, so it is the dexer's output failing Dalvik's bytecode verifier. There is no
-  app-level fix.
+`FallbackTransport` retries on the second stack **only when the failure was at the TLS
+level**. A 401 or 404 means the connection worked and the server answered, so retrying
+would double the request and hide the real response.
 
-So the bundled TLS only runs on ART, where the platform stack is already fine. The honest
-summary: **Android 4.1+ for live API calls, and the bundled TLS is insurance rather than
-a bridge.** The Settings screen says this plainly on affected devices instead of failing
-obscurely, and **Test connection** in Settings diagnoses DNS/TLS/HTTP without spending a
-request against your quota.
+This is not theoretical. On Android 4.3 the platform stack negotiates TLS 1.2 correctly —
+the logs show `[TLSv1, TLSv1.1, TLSv1.2]` offered — and *still* fails the handshake with
+`SSL23_GET_SERVER_HELLO: unsupported protocol`, because AWS (which fronts DeepSeek)
+requires SNI and Android 4.3 does not send it. The fallback catches exactly that.
 
-That floor is not a problem for the intended hardware: BlackBerry 10 devices run an
-Android 4.3 runtime (API 18) and KEYone/KEY2 run 7.1/8.1.
+**What has actually been verified, on real hardware and emulators:**
+
+| Device / level | Result |
+|---|---|
+| Android 2.3 emulator (API 10) | Bundled TLS **fails** — `VerifyError` in `org.bouncycastle.tls.TlsUtils` |
+| Android 4.3 emulator (API 18) | Bundled TLS **works**; reaches DeepSeek with HTTP 401 |
+| **BlackBerry Q5**, Android 4.3 runtime | Bundled TLS **works** — confirmed on the real device this was built for |
+| Android 5.0 emulator (API 21) | Both stacks work |
+
+That API 10 failure is not a shrinking artefact: plain `d8` with **no R8 at all**
+reproduces it, so it is the dexer's output failing Dalvik's older bytecode verifier. An
+earlier draft of this file concluded from that one data point that the bundled TLS only
+worked on ART. **That was wrong**, and a BlackBerry Q5 disproved it: Android 4.3 is
+Dalvik too, and its verifier is more than capable. The honest statement is that the
+bundled stack needs Android 4.1 or newer, and the floor below which nothing can reach
+these APIs is around there.
+
+**Test connection** in Settings reports which stack actually carried the request — not
+which one was configured, since those differ whenever a fallback engages — and diagnoses
+DNS, TLS and HTTP without spending a request against your quota.
 
 ### API keys are stored unencrypted
 
@@ -364,6 +382,14 @@ API 21 (Lollipop).
   view whose style does not supply them. Omitting them throws
   `"You must supply a layout_width attribute"` at inflate time. Layout params therefore
   live on the elements, never only in styles.
+* **Android's `org.json` is not the reference `org.json`.** `optString(key, fallback)`
+  returns the literal string `"null"` when the value is JSON `null`, where the reference
+  implementation returns the fallback. DeepSeek sends `"content": null` on chunks with no
+  text, and each one was appended as four characters — a reply that began
+  `nullnullnullnull`. It compiles, it passes on the JVM, and it only misbehaves on a
+  device. All possibly-null reads now go through `Json.str`, and the JVM suite pins that
+  helper's contract rather than the platform's behaviour, because it cannot reproduce the
+  platform's behaviour at all.
 * **build-tools 37 renames a key in `aapt2 dump badging`**, from `sdkVersion` to
   `minSdkVersion` — note the capital `S`, which is why a lowercase
   `sdkVersion:'4'` check silently stops matching. The APK is identical and correct; only

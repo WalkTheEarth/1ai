@@ -27,42 +27,50 @@ public final class TransportFactory {
 
     public static Transport create(Context context, Prefs prefs) {
         String mode = prefs.legacyTls();
+        Transport bundled = BcTlsTransport.createIfAvailable(context);
 
         if (Prefs.TLS_ALWAYS.equals(mode)) {
-            Transport bc = BcTlsTransport.createIfAvailable(context);
-            return bc != null ? bc : new PlatformTransport();
+            return bundled != null ? bundled : new PlatformTransport();
         }
         if (Prefs.TLS_NEVER.equals(mode)) {
             return new PlatformTransport();
         }
 
-        // AUTO: reach for Bouncy Castle only when the platform cannot do it.
+        // AUTO. Below API 16 the platform has no TLS 1.2 at all, so there is
+        // nothing to try first.
         if (platformTlsIsInsufficient()) {
-            Transport bc = BcTlsTransport.createIfAvailable(context);
-            if (bc != null) {
-                return bc;
-            }
+            return bundled != null ? bundled : new PlatformTransport();
         }
-        return new PlatformTransport();
+
+        // Everywhere else, prefer the platform stack -- it is the device's own
+        // tested implementation and costs nothing in APK size -- but keep the
+        // bundled one directly behind it. Which API levels successfully
+        // negotiate TLS 1.2 varies by release and vendor, and the servers keep
+        // moving too: DeepSeek now refuses TLS 1.0 and 1.1 outright, so a phone
+        // offering only those cannot reach it however correct this code is.
+        // Retrying on a handshake failure removes the need to predict that.
+        Transport platform = new PlatformTransport();
+        return bundled != null ? new FallbackTransport(platform, bundled) : platform;
     }
 
     /**
-     * A sentence explaining what this device can and cannot do.
+     * A sentence explaining what this device can and cannot do, for the
+     * settings screen.
      *
-     * <p>Below API 16 this is a bad-news message, and it says so. The bundled
-     * TLS is present and works, but only on ART: on Dalvik the bytecode the
-     * dexer emits for Bouncy Castle fails the old verifier outright, so the
-     * attempt is doomed before it starts. Pretending otherwise would send
-     * someone hunting for a network fault that does not exist.
+     * <p>Below API 16 it is bad news and says so. The bundled TLS is present
+     * and works -- verified on Android 4.3, which is what this was built for --
+     * but it needs a Dalvik new enough to verify its bytecode, and Android 2.3's
+     * is not. Pretending otherwise would send someone hunting for a network
+     * fault that does not exist.
      */
     public static String describe(Prefs prefs) {
         if (!platformTlsIsInsufficient()) {
             return "Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT
-                    + ") has TLS 1.2. All good.";
+                    + "). The platform TLS is used, with the bundled TLS as a fallback "
+                    + "for servers it cannot negotiate with.";
         }
         return "Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT
-                + ") has no TLS 1.2, which these APIs require. The bundled TLS cannot help here: "
-                + "it needs Android 5.0 or newer, where it is also unnecessary. "
-                + "Network requests will not work on this device.";
+                + ") has no TLS 1.2, which these APIs require. The bundled TLS needs "
+                + "Android 4.1 or newer, so network requests will not work here.";
     }
 }

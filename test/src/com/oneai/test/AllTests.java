@@ -15,6 +15,8 @@ import com.oneai.provider.StreamListener;
 
 import org.json.JSONObject;
 
+import com.oneai.net.TlsFailures;
+import com.oneai.provider.Json;
 import com.oneai.util.Hostname;
 import com.oneai.util.Pem;
 
@@ -91,6 +93,8 @@ public final class AllTests {
         tls();
         attachments();
         endpoints();
+        nullHandling();
+        tlsFailures();
         System.exit(T.report());
     }
 
@@ -240,6 +244,140 @@ public final class AllTests {
             } catch (Exception e) {
                 throw new AssertionError(e);
             }
+        });
+    }
+
+    // -------------------------------------------------------- null handling
+
+    /**
+     * Android's org.json returns the literal string "null" from
+     * optString(key, fallback) when the value is JSON null, where the reference
+     * implementation returns the fallback. That turned a stream of chunks
+     * carrying "content": null into a reply beginning "nullnullnullnull".
+     *
+     * <p>These tests cannot reproduce the Android quirk -- the JVM links the
+     * reference library, where optString already behaves. What they pin is the
+     * contract the fix relies on: the helper never hands back the string
+     * "null", on either implementation, so the parsers behave identically
+     * everywhere.
+     */
+    private static void nullHandling() {
+        T.section("JSON null handling");
+
+        T.test("a JSON null is not the string \"null\"", () -> {
+            try {
+                JSONObject o = new JSONObject("{\"content\":null}");
+                T.isTrue(Json.str(o, "content") == null, "str returns null");
+                T.eq("", Json.strOrEmpty(o, "content"), "strOrEmpty returns empty");
+                T.isTrue(!Json.hasText(o, "content"), "hasText is false");
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        });
+
+        T.test("a missing key is null, not the string \"null\"", () -> {
+            try {
+                JSONObject o = new JSONObject("{}");
+                T.isTrue(Json.str(o, "content") == null, "str returns null");
+                T.eq("", Json.strOrEmpty(o, "content"), "strOrEmpty returns empty");
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        });
+
+        T.test("a real value still comes through", () -> {
+            try {
+                JSONObject o = new JSONObject("{\"content\":\"hello\"}");
+                T.eq("hello", Json.str(o, "content"), "str");
+                T.isTrue(Json.hasText(o, "content"), "hasText");
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        });
+
+        T.test("OpenAI chunks with null content emit nothing", () -> {
+            try {
+                // The exact shape DeepSeek sends on chunks that carry no text:
+                // a role-only opening delta, then nulls, then real content.
+                String sse =
+                    "data: {\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":null},\"finish_reason\":null}]}\n\n"
+                  + "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":null},\"finish_reason\":null}]}\n\n"
+                  + "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":null},\"finish_reason\":null}]}\n\n"
+                  + "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"i am here\"},\"finish_reason\":null}]}\n\n"
+                  + "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+                  + "data: [DONE]\n\n";
+                Recorder rec = new Recorder();
+                new ChatClient(new MockTransport(200, sse, "text/event-stream", 0))
+                        .stream(new OpenAiProvider(), "k",
+                                new OpenAiProvider().defaultBaseUrl(),
+                                req(new OpenAiProvider()), rec, new ChatClient.Session());
+                T.eq("i am here", rec.text.toString(), "no stray nulls in the reply");
+                T.lacks(rec.text.toString(), "null", "the word null never appears");
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        });
+
+        T.test("Anthropic and Google ignore null deltas too", () -> {
+            try {
+                String anthropic =
+                    "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":null}}\n\n"
+                  + "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n"
+                  + "data: {\"type\":\"message_stop\"}\n\n";
+                T.eq("ok", runDrip(new AnthropicProvider(), anthropic, 0).text.toString(),
+                        "anthropic");
+
+                String google =
+                    "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":null}],\"role\":\"model\"}}]}\n\n"
+                  + "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"}],\"role\":\"model\"}}]}\n\n";
+                T.eq("ok", runDrip(new GoogleProvider(), google, 0).text.toString(), "google");
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        });
+    }
+
+    // -------------------------------------------------------- TLS retry rule
+
+    private static void tlsFailures() {
+        T.section("TLS failure detection");
+
+        T.test("handshake failures trigger a retry", () -> {
+            T.isTrue(TlsFailures.isTransportFailure(
+                    new javax.net.ssl.SSLHandshakeException("unsupported protocol")),
+                    "SSLHandshakeException");
+            T.isTrue(TlsFailures.isTransportFailure(
+                    new java.io.IOException("SSL handshake aborted")), "message only");
+            T.isTrue(TlsFailures.isTransportFailure(
+                    new java.io.IOException("outer",
+                            new javax.net.ssl.SSLException("inner"))), "wrapped");
+            T.isTrue(TlsFailures.isTransportFailure(
+                    new java.io.IOException("Trust anchor for certification path not found")),
+                    "certificate problem");
+        });
+
+        T.test("server answers do NOT trigger a retry", () -> {
+            // A 401 means the connection worked. Retrying would double the
+            // request and hide the server's actual answer.
+            T.isTrue(!TlsFailures.isTransportFailure(
+                    new java.io.IOException("HTTP 401 Unauthorized")), "http status");
+            T.isTrue(!TlsFailures.isTransportFailure(
+                    new ProviderException(429, null, "slow down", "rate limited", true)),
+                    "provider error");
+            T.isTrue(!TlsFailures.isTransportFailure(new java.io.IOException((String) null)),
+                    "null message");
+            T.isTrue(!TlsFailures.isTransportFailure(null), "null throwable");
+        });
+
+        T.test("a self-referential cause chain terminates", () -> {
+            final java.io.IOException a = new java.io.IOException("a");
+            java.io.IOException b = new java.io.IOException("b", a) {
+                @Override
+                public synchronized Throwable getCause() {
+                    return this;
+                }
+            };
+            T.isTrue(!TlsFailures.isTransportFailure(b), "does not hang");
         });
     }
 

@@ -1,6 +1,7 @@
 package com.oneai.net.android;
 
 import android.os.Build;
+import android.util.Log;
 
 import com.oneai.net.Conn;
 import com.oneai.net.Transport;
@@ -30,6 +31,8 @@ import javax.net.ssl.SSLSocketFactory;
  */
 public final class PlatformTransport implements Transport {
 
+    private static final String TAG = "1AI";
+
     private static final int CONNECT_TIMEOUT_MS = 20000;
 
     private final boolean forceTls12;
@@ -42,12 +45,20 @@ public final class PlatformTransport implements Transport {
     }
 
     @Override
+    public String name() {
+        return "platform TLS";
+    }
+
+    @Override
     public Conn open(String method, String url, Map<String, String> headers, byte[] body)
             throws IOException {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
 
         if (forceTls12 && c instanceof javax.net.ssl.HttpsURLConnection) {
-            ((javax.net.ssl.HttpsURLConnection) c).setSSLSocketFactory(tls12Factory());
+            SSLSocketFactory factory = modernTlsFactory();
+            if (factory != null) {
+                ((javax.net.ssl.HttpsURLConnection) c).setSSLSocketFactory(factory);
+            }
         }
 
         c.setRequestMethod(method);
@@ -73,17 +84,32 @@ public final class PlatformTransport implements Transport {
         return new PlatformConn(c);
     }
 
-    /** Wraps the platform factory so every socket gets TLS 1.2 switched on. */
-    private static SSLSocketFactory tls12Factory() {
-        try {
-            SSLContext ctx = SSLContext.getInstance("TLS");
-            ctx.init(null, null, null);
-            return new Tls12Factory(ctx.getSocketFactory());
-        } catch (Exception e) {
-            // If this fails we are no worse off than before: fall back to the
-            // platform default and let the caller see a normal handshake error.
-            return null;
+    /**
+     * A factory whose sockets have every protocol the runtime supports enabled.
+     *
+     * <p>Success matters and failure is reported. The previous version returned
+     * null on any problem, and null is not a harmless default here:
+     * {@code setSSLSocketFactory(null)} silently restores the platform default,
+     * which on API 16-19 offers only TLS 1.0 and 1.1. That is how a request to
+     * a server requiring TLS 1.2 failed with "unsupported protocol" while the
+     * code looked like it was enabling TLS 1.2 correctly.
+     */
+    private static SSLSocketFactory modernTlsFactory() {
+        // "TLSv1.2" is the documented way to obtain a TLS 1.2-capable context
+        // on API 16-19; plain "TLS" there gives a context whose sockets leave
+        // TLS 1.2 switched off.
+        String[] contextNames = {"TLSv1.2", "TLS"};
+        for (int i = 0; i < contextNames.length; i++) {
+            try {
+                SSLContext ctx = SSLContext.getInstance(contextNames[i]);
+                ctx.init(null, null, null);
+                return new Tls12Factory(ctx.getSocketFactory());
+            } catch (Exception e) {
+                Log.w(TAG, "SSLContext " + contextNames[i] + " unavailable", e);
+            }
         }
+        Log.w(TAG, "no TLS 1.2-capable context; the platform default will be used");
+        return null;
     }
 
     private static final class Tls12Factory extends SSLSocketFactory {
@@ -100,16 +126,31 @@ public final class PlatformTransport implements Transport {
          * would turn a working connection into a crash.
          */
         private Socket enable(Socket s) {
-            if (s instanceof SSLSocket) {
-                SSLSocket ssl = (SSLSocket) s;
-                String[] supported = ssl.getSupportedProtocols();
-                for (int i = 0; i < supported.length; i++) {
-                    if ("TLSv1.2".equals(supported[i])) {
-                        ssl.setEnabledProtocols(new String[]{"TLSv1.2"});
-                        break;
-                    }
+            if (!(s instanceof SSLSocket)) {
+                return s;
+            }
+            SSLSocket ssl = (SSLSocket) s;
+            String[] supported = ssl.getSupportedProtocols();
+
+            // Enable everything the runtime supports, less SSLv3 and older.
+            // On API 16-19 TLS 1.2 is supported but switched off by default, so
+            // this is what turns it on -- while leaving 1.0 and 1.1 available
+            // for any server that still needs them. Forcing TLS 1.2 alone
+            // would break those, and buys nothing in return.
+            java.util.List<String> keep = new java.util.ArrayList<String>();
+            for (int i = 0; i < supported.length; i++) {
+                String p = supported[i];
+                if (p != null && !p.startsWith("SSL")) {
+                    keep.add(p);
                 }
             }
+            if (keep.isEmpty()) {
+                Log.w(TAG, "runtime reports no usable TLS protocols");
+                return s;
+            }
+            ssl.setEnabledProtocols(keep.toArray(new String[keep.size()]));
+            Log.i(TAG, "protocols for " + ssl.getInetAddress() + ": "
+                    + java.util.Arrays.toString(ssl.getEnabledProtocols()));
             return s;
         }
 

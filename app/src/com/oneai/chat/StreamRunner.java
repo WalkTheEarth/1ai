@@ -50,7 +50,11 @@ public final class StreamRunner {
 
     private final Context appContext;
     private final Handler main = new Handler(Looper.getMainLooper());
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    /**
+     * Not final: a shut-down executor is replaced rather than reused. See
+     * {@link #worker()}.
+     */
+    private ExecutorService executor = Executors.newSingleThreadExecutor();
 
     private volatile ChatClient.Session session;
     private volatile boolean stopped;
@@ -66,7 +70,37 @@ public final class StreamRunner {
         if (s != null) {
             s.cancel();
         }
+    }
+
+    /**
+     * Aborts the request and releases the worker thread.
+     *
+     * <p>Separate from {@link #cancel()} because they are genuinely different
+     * operations and conflating them was a crash. Stop and Back both cancel a
+     * stream, but only leaving the screen should tear the runner down -- and
+     * shutdownNow() is permanent. With the two combined, pressing Stop once
+     * left a dead executor behind, and the *next* message threw
+     * RejectedExecutionException on the UI thread.
+     *
+     * <p>Call from onDestroy only.
+     */
+    public void dispose() {
+        cancel();
         executor.shutdownNow();
+    }
+
+    /**
+     * The executor to submit to, revived if a previous dispose killed it.
+     *
+     * <p>Belt and braces alongside the cancel/dispose split: a runner that
+     * somehow gets used after disposal should start a fresh thread rather than
+     * take the app down.
+     */
+    private synchronized ExecutorService worker() {
+        if (executor.isShutdown()) {
+            executor = Executors.newSingleThreadExecutor();
+        }
+        return executor;
     }
 
     public boolean isRunning() {
@@ -102,7 +136,7 @@ public final class StreamRunner {
 
         final Transport transport = TransportFactory.create(appContext, prefs);
 
-        executor.execute(new Runnable() {
+        worker().execute(new Runnable() {
             @Override
             public void run() {
                 // Providers report usage just before the stream ends, so it is

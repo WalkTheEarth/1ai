@@ -240,16 +240,16 @@ public class OpenAiProvider extends Provider {
                     return;
                 }
                 if (choice.has("finish_reason") && !choice.isNull("finish_reason")) {
-                    stopReason = choice.optString("finish_reason", null);
+                    stopReason = Json.str(choice, "finish_reason");
                 }
                 JSONObject delta = choice.optJSONObject("delta");
                 if (delta != null) {
-                    String text = delta.optString("content", "");
+                    String text = Json.strOrEmpty(delta, "content");
                     if (text.length() > 0) {
                         l.onText(text);
                     }
                     // Some reasoning models expose a separate channel.
-                    String reasoning = delta.optString("reasoning_content", "");
+                    String reasoning = Json.strOrEmpty(delta, "reasoning_content");
                     if (reasoning.length() > 0) {
                         l.onThinking(reasoning);
                     }
@@ -282,10 +282,10 @@ public class OpenAiProvider extends Provider {
             JSONObject o = new JSONObject(responseBody);
             JSONObject e = o.optJSONObject("error");
             if (e != null) {
-                detail = e.optString("message", null);
-                code = e.optString("code", null);
+                detail = Json.str(e, "message");
+                code = Json.str(e, "code");
                 if (code == null || code.length() == 0 || "null".equals(code)) {
-                    code = e.optString("type", null);
+                    code = Json.str(e, "type");
                 }
             }
         } catch (JSONException ignored) {

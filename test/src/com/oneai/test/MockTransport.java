@@ -39,6 +39,11 @@ public final class MockTransport implements Transport {
     }
 
     @Override
+    public String name() {
+        return "mock";
+    }
+
+    @Override
     public Conn open(String method, String url, Map<String, String> headers, byte[] body)
             throws IOException {
         capturedMethod = method;

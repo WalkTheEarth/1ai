@@ -79,7 +79,9 @@ public class SettingsActivity extends BaseActivity {
 
         section(R.string.section_generation);
         row(getString(R.string.label_system_prompt),
-                prefs.systemPrompt().length() == 0 ? "(none)" : prefs.systemPrompt(),
+                (prefs.usingDefaultSystemPrompt()
+                        ? getString(R.string.label_system_prompt_default) + "  "
+                        : "") + prefs.systemPrompt(),
                 new Runnable() {
                     @Override
                     public void run() {

@@ -164,7 +164,10 @@ public final class AnthropicProvider extends Provider {
                 // The event name on the wire and the "type" inside the payload
                 // agree; trusting the payload means a mis-framed event line
                 // cannot silently drop content.
-                String type = o.optString("type", event == null ? "" : event);
+                String type = Json.str(o, "type");
+                if (type == null) {
+                    type = event == null ? "" : event;
+                }
 
                 if ("message_start".equals(type)) {
                     JSONObject msg = o.optJSONObject("message");
@@ -177,14 +180,14 @@ public final class AnthropicProvider extends Provider {
                 } else if ("content_block_delta".equals(type)) {
                     JSONObject d = o.optJSONObject("delta");
                     if (d != null) {
-                        String dt = d.optString("type", "");
+                        String dt = Json.strOrEmpty(d, "type");
                         if ("text_delta".equals(dt)) {
-                            String t = d.optString("text", "");
+                            String t = Json.strOrEmpty(d, "text");
                             if (t.length() > 0) {
                                 l.onText(t);
                             }
                         } else if ("thinking_delta".equals(dt)) {
-                            String t = d.optString("thinking", "");
+                            String t = Json.strOrEmpty(d, "thinking");
                             if (t.length() > 0) {
                                 l.onThinking(t);
                             }
@@ -193,7 +196,7 @@ public final class AnthropicProvider extends Provider {
                 } else if ("message_delta".equals(type)) {
                     JSONObject d = o.optJSONObject("delta");
                     if (d != null && d.has("stop_reason") && !d.isNull("stop_reason")) {
-                        stopReason = d.optString("stop_reason", null);
+                        stopReason = Json.str(d, "stop_reason");
                     }
                     JSONObject u = o.optJSONObject("usage");
                     if (u != null) {
@@ -205,8 +208,8 @@ public final class AnthropicProvider extends Provider {
                     // An error can arrive mid-stream after a 200. Surface it
                     // rather than treating the truncated text as complete.
                     JSONObject e = o.optJSONObject("error");
-                    String detail = e == null ? data : e.optString("message", data);
-                    String code = e == null ? null : e.optString("type", null);
+                    String detail = e == null ? data : Json.str(e, "message");
+                    String code = e == null ? null : Json.str(e, "type");
                     throw new IOException(new ProviderException(
                             ProviderException.NO_STATUS, code, detail,
                             "Anthropic stopped the response: " + detail, true));
@@ -241,8 +244,8 @@ public final class AnthropicProvider extends Provider {
             JSONObject o = new JSONObject(responseBody);
             JSONObject e = o.optJSONObject("error");
             if (e != null) {
-                code = e.optString("type", null);
-                detail = e.optString("message", null);
+                code = Json.str(e, "type");
+                detail = Json.str(e, "message");
             }
         } catch (JSONException ignored) {
             // Not JSON; fall through to the generic wording.

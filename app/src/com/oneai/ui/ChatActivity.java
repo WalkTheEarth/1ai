@@ -141,7 +141,9 @@ public class ChatActivity extends BaseActivity {
     protected void onDestroy() {
         super.onDestroy();
         if (runner != null) {
-            runner.cancel();
+            // dispose(), not cancel(): leaving the screen should release the
+            // worker thread, whereas Stop only ends the current stream.
+            runner.dispose();
         }
         // Anything picked but never sent leaves a file on disk with no row
         // pointing at it, and nothing would ever find it again.

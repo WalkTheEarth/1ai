@@ -30,6 +30,15 @@
 
     <!-- Chat -->
     <string name="hint_message">Message…</string>
+
+    <!--
+      Sent as the system prompt when the user has not set one of their own.
+      Deliberately short: it is re-sent on every request, so every word of it is
+      paid for on every turn, and a long preamble tends to produce a long
+      preamble back.
+    -->
+    <string name="default_system_prompt">You are a helpful assistant, being read on a small phone screen. Be concise and direct: answer the question first, keep paragraphs short, and skip the preamble.</string>
+    <string name="label_system_prompt_default">(built-in default)</string>
     <string name="hint_rename">Conversation name</string>
     <string name="hint_filter">Filter…</string>
     <string name="streaming">Streaming…</string>
@@ -57,7 +66,7 @@
     <string name="label_show_thinking">Show model thinking</string>
 
     <!-- TLS / diagnostics -->
-    <string name="tls_auto">Auto (Bouncy Castle below Android 4.1)</string>
+    <string name="tls_auto">Auto (platform TLS, bundled fallback)</string>
     <string name="tls_always">Always use Bouncy Castle</string>
     <string name="tls_never">Always use the platform TLS</string>
 

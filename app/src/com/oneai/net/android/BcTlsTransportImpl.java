@@ -53,6 +53,11 @@ final class BcTlsTransportImpl implements Transport {
     }
 
     @Override
+    public String name() {
+        return "bundled TLS 1.2 (Bouncy Castle)";
+    }
+
+    @Override
     public Conn open(String method, String url, Map<String, String> headers, byte[] body)
             throws IOException {
         URL parsed = new URL(url);
