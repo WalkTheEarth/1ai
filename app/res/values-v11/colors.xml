@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Era 2 palette: Android 3.0 - 4.4W (Holo).
+
+  Near-black surfaces and the #33b5e5 blue that defined Holo. Note that
+  row_text_focused flips to white here: era 1's focus colour is a light amber
+  block needing dark text, while Holo's is a saturated blue needing light text.
+  That is exactly the kind of difference a single hard-coded text colour gets
+  wrong.
+-->
+<resources>
+    <color name="bg_window">#ff000000</color>
+    <color name="bg_surface">#ff111111</color>
+    <color name="bg_input">#ff0a0a0a</color>
+
+    <color name="text_primary">#ffffffff</color>
+    <color name="text_secondary">#ffbebebe</color>
+    <color name="text_on_accent">#ffffffff</color>
+
+    <color name="accent">#ff33b5e5</color>
+    <color name="accent_dim">#ff0099cc</color>
+
+    <color name="row_focused">#ff33b5e5</color>
+    <color name="row_pressed">#ff0099cc</color>
+    <color name="row_text_focused">#ffffffff</color>
+    <color name="msg_focused">#ff0d2b38</color>
+
+    <color name="divider">#ff2a2a2a</color>
+
+    <color name="title_grad_top">#ff3c3c3c</color>
+    <color name="title_grad_bottom">#ff1e1e1e</color>
+    <color name="title_text">#ffffffff</color>
+    <color name="title_subtitle">#ffbebebe</color>
+
+    <color name="btn_grad_top">#ff4a4a4a</color>
+    <color name="btn_grad_bottom">#ff262626</color>
+    <color name="btn_stroke">#ff555555</color>
+    <color name="btn_text">#ffffffff</color>
+
+    <color name="bubble_user">#ff12303d</color>
+    <color name="bubble_assistant">#ff161616</color>
+    <color name="bubble_error">#ff3a1c1c</color>
+</resources>

@@ -1,0 +1,26 @@
+# Build output
+build/
+
+# Downloaded dependencies. build.sh fetches and checksum-verifies all of
+# these, so committing them would only add ~29MB of binaries that would then
+# silently drift from their published versions.
+libs/
+tools/
+
+# Trust anchors, fetched and sha256-verified by build.sh so the roots stay
+# current rather than frozen at whatever was committed.
+app/res/raw/cacert.pem
+
+# Signing key. This is a throwaway debug keystore that build.sh regenerates on
+# first build; it has a well-known password, so publishing it would be
+# pointless as well as bad practice. Supply your own for a real release.
+keystore.jks
+
+# Partial downloads
+*.tmp
+
+# Editors / OS
+.idea/
+*.iml
+.DS_Store
+*~

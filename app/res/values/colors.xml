@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Era 1 palette: Android 1.6 - 2.3 (Donut/Froyo/Gingerbread), pre-Holo.
+
+  Black backgrounds, grey gradient chrome, and the solid amber list highlight
+  Android used for focused rows before Holo replaced it with translucent blue.
+  That amber block is also genuinely the most legible focus indicator on a
+  small sunlight-readable BlackBerry screen, so the period-correct choice and
+  the usable choice happen to be the same one.
+
+  Every drawable in this app references colours by name, so overriding this
+  file per era re-skins the whole UI without touching a single layout.
+-->
+<resources>
+    <color name="bg_window">#ff000000</color>
+    <color name="bg_surface">#ff1a1a1a</color>
+    <color name="bg_input">#ff101010</color>
+
+    <color name="text_primary">#ffffffff</color>
+    <color name="text_secondary">#ffaaaaaa</color>
+    <color name="text_on_accent">#ffffffff</color>
+
+    <color name="accent">#ff99cc00</color>
+    <color name="accent_dim">#ff669900</color>
+
+    <color name="row_focused">#ffff8c00</color>
+    <color name="row_pressed">#ffffa500</color>
+    <color name="row_text_focused">#ff000000</color>
+    <color name="msg_focused">#ff3a2a10</color>
+
+    <color name="divider">#ff333333</color>
+
+    <color name="title_grad_top">#ff4a4a4a</color>
+    <color name="title_grad_bottom">#ff1a1a1a</color>
+    <color name="title_text">#ffffffff</color>
+    <color name="title_subtitle">#ffcccccc</color>
+
+    <color name="btn_grad_top">#ff5a5a5a</color>
+    <color name="btn_grad_bottom">#ff2a2a2a</color>
+    <color name="btn_stroke">#ff808080</color>
+    <color name="btn_text">#ffffffff</color>
+
+    <color name="bubble_user">#ff203040</color>
+    <color name="bubble_assistant">#ff1a1a1a</color>
+    <color name="bubble_error">#ff402020</color>
+</resources>

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The composer sits below the message list rather than floating over it, which
+  is what keeps it visible when the on-screen keyboard opens on a device that
+  has one. adjustResize (set in the manifest) then shrinks the list instead of
+  hiding the input.
+
+  The list takes the remaining height with weight=1 rather than a fixed size,
+  so the layout survives the BlackBerry Passport's 1:1 screen and a normal
+  16:9 phone without a separate layout for either.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="fill_parent"
+    android:layout_height="fill_parent"
+    android:orientation="vertical"
+    android:background="@color/bg_window">
+
+    <include
+        layout="@layout/title_bar"
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content" />
+
+    <ListView
+        android:id="@+id/message_list"
+        android:layout_width="fill_parent"
+        android:layout_height="0dip"
+        android:layout_weight="1"
+        android:divider="@android:color/transparent"
+        android:dividerHeight="0dip"
+        android:cacheColorHint="#00000000"
+        android:listSelector="@android:color/transparent"
+        android:transcriptMode="normal"
+        android:scrollbars="vertical" />
+
+    <LinearLayout
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="@color/bg_surface"
+        android:padding="6dip">
+
+        <EditText
+            android:id="@+id/input"
+            style="@style/MessageInput"
+            android:layout_width="0dip"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="@string/hint_message" />
+
+        <TextView
+            android:id="@+id/send"
+            style="@style/ActionButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="6dip"
+            android:text="@string/action_send" />
+    </LinearLayout>
+
+</LinearLayout>

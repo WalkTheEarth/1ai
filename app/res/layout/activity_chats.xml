@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="fill_parent"
+    android:layout_height="fill_parent"
+    android:orientation="vertical">
+
+    <!--
+      The layout_width/layout_height on the include tag are NOT redundant.
+      Modern Android lets an <include> inherit the included layout's root
+      params, but LayoutInflater.parseInclude on Android 2.x throws
+      "You must supply a layout_width attribute" without them. Specifying both
+      here is what makes the same layout inflate on 1.6 and on 14.
+    -->
+    <include
+        layout="@layout/title_bar"
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content" />
+
+    <!--
+      The list and the empty state share a FrameLayout so the empty message
+      sits exactly where the list would be, and neither affects the other's
+      layout.
+    -->
+    <FrameLayout
+        android:layout_width="fill_parent"
+        android:layout_height="0dip"
+        android:layout_weight="1">
+
+        <ListView
+            android:id="@+id/list"
+            android:layout_width="fill_parent"
+            android:layout_height="fill_parent"
+            android:divider="@color/divider"
+            android:dividerHeight="1dip"
+            android:cacheColorHint="#00000000"
+            android:listSelector="@android:color/transparent"
+            android:scrollbars="vertical" />
+
+        <TextView
+            android:id="@+id/empty"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical"
+            android:gravity="center"
+            android:padding="24dip"
+            android:textSize="14sp"
+            android:textColor="@color/text_secondary"
+            android:text="@string/empty_chats"
+            android:visibility="gone" />
+    </FrameLayout>
+
+</LinearLayout>

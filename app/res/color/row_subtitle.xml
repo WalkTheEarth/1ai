@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Row text flips colour while the row is focused, because the focused
+  background differs in lightness between eras. On era 1 and era 3 it is a
+  light block needing dark text; on Holo it is saturated blue needing light
+  text. Referencing a colour resource rather than a literal is what lets the
+  same state list serve all three.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true" android:color="@color/row_text_focused" />
+    <item android:state_selected="true" android:color="@color/row_text_focused" />
+    <item android:state_pressed="true" android:color="@color/row_text_focused" />
+    <item android:color="@color/text_secondary" />
+</selector>

@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Era 1 styles: Android 1.6 - 2.3.
+
+  Everything referenced here must exist at API 4. Notably that means no
+  android:elevation (API 21), no android:textAllCaps (API 14), and no
+  @android:style/Theme.Holo (API 11); the -v11 and -v21 resource folders
+  override these definitions on newer devices.
+
+  We draw our own title bar on every era rather than using the platform
+  ActionBar. That costs a little authenticity but buys two things that matter
+  more here: identical keyboard navigation on every Android version, and a
+  focus model we fully control, which is the entire point of this app.
+-->
+<resources>
+
+    <style name="AppTheme" parent="@android:style/Theme.NoTitleBar">
+        <item name="android:windowBackground">@color/bg_window</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textColorHint">@color/text_secondary</item>
+    </style>
+
+    <!-- Custom chrome ================================================== -->
+
+    <style name="TitleBar">
+        <item name="android:background">@drawable/title_bar</item>
+        <item name="android:layout_width">fill_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:paddingLeft">8dip</item>
+        <item name="android:paddingRight">8dip</item>
+        <item name="android:paddingTop">6dip</item>
+        <item name="android:paddingBottom">6dip</item>
+    </style>
+
+    <style name="TitleText">
+        <item name="android:textSize">18sp</item>
+        <item name="android:textColor">@color/title_text</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:layout_width">fill_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+    </style>
+
+    <style name="TitleSubtitle">
+        <item name="android:textSize">11sp</item>
+        <item name="android:textColor">@color/title_subtitle</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:layout_width">fill_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+    </style>
+
+    <style name="TitleButton">
+        <item name="android:background">@drawable/title_button</item>
+        <item name="android:textColor">@color/title_text</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:paddingLeft">10dip</item>
+        <item name="android:paddingRight">10dip</item>
+        <item name="android:paddingTop">4dip</item>
+        <item name="android:paddingBottom">4dip</item>
+        <item name="android:layout_marginLeft">4dip</item>
+        <item name="android:focusable">true</item>
+        <item name="android:clickable">true</item>
+    </style>
+
+    <!-- Lists =========================================================== -->
+
+    <style name="ListRow">
+        <item name="android:background">@drawable/row_bg</item>
+        <item name="android:paddingLeft">10dip</item>
+        <item name="android:paddingRight">10dip</item>
+        <item name="android:paddingTop">9dip</item>
+        <item name="android:paddingBottom">9dip</item>
+        <item name="android:focusable">true</item>
+        <item name="android:layout_width">fill_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+    </style>
+
+    <style name="RowTitle">
+        <item name="android:textSize">16sp</item>
+        <item name="android:textColor">@color/row_title</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
+    <style name="RowSubtitle">
+        <item name="android:textSize">11sp</item>
+        <item name="android:textColor">@color/row_subtitle</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
+    <style name="RowPreview">
+        <item name="android:textSize">13sp</item>
+        <item name="android:textColor">@color/row_preview</item>
+        <item name="android:maxLines">2</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
+    <!-- Input / buttons ================================================== -->
+
+    <style name="MessageInput">
+        <item name="android:background">@drawable/input_bg</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textColorHint">@color/text_secondary</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:padding">8dip</item>
+        <item name="android:gravity">top</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_width">0dip</item>
+        <item name="android:minLines">1</item>
+        <item name="android:maxLines">5</item>
+        <item name="android:inputType">textMultiLine|textNoSuggestions</item>
+    </style>
+
+    <style name="ActionButton">
+        <item name="android:background">@drawable/btn_bg</item>
+        <item name="android:textColor">@color/btn_text</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:paddingLeft">14dip</item>
+        <item name="android:paddingRight">14dip</item>
+        <item name="android:paddingTop">8dip</item>
+        <item name="android:paddingBottom">8dip</item>
+        <item name="android:focusable">true</item>
+        <item name="android:clickable">true</item>
+    </style>
+
+    <style name="SectionHeader">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">@color/accent</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:paddingLeft">10dip</item>
+        <item name="android:paddingTop">14dip</item>
+        <item name="android:paddingBottom">4dip</item>
+    </style>
+
+    <style name="SettingLabel">
+        <item name="android:textSize">15sp</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:paddingLeft">10dip</item>
+        <item name="android:paddingRight">10dip</item>
+        <item name="android:paddingTop">10dip</item>
+    </style>
+
+    <style name="SettingValue">
+        <item name="android:textSize">13sp</item>
+        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:paddingLeft">10dip</item>
+        <item name="android:paddingRight">10dip</item>
+        <item name="android:paddingBottom">2dip</item>
+    </style>
+
+    <style name="SettingHelp">
+        <item name="android:textSize">11sp</item>
+        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:paddingLeft">10dip</item>
+        <item name="android:paddingRight">10dip</item>
+        <item name="android:paddingBottom">6dip</item>
+    </style>
+
+    <style name="MessageMeta">
+        <item name="android:textSize">10sp</item>
+        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:paddingLeft">8dip</item>
+        <item name="android:paddingRight">8dip</item>
+        <item name="android:paddingTop">6dip</item>
+    </style>
+
+    <style name="MessageBody">
+        <item name="android:textSize">15sp</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:padding">8dip</item>
+        <item name="android:lineSpacingMultiplier">1.15</item>
+    </style>
+
+</resources>

@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">1AI</string>
+
+    <!-- Chats -->
+    <string name="title_chats">1AI</string>
+    <string name="title_settings">Settings</string>
+    <string name="empty_chats">No conversations yet.\nPress N or use the menu to start one.</string>
+    <string name="empty_messages">Type a message below and press Enter to send.</string>
+
+    <!-- Actions -->
+    <string name="action_new">New chat</string>
+    <string name="action_rename">Rename</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_settings">Settings</string>
+    <string name="action_send">Send</string>
+    <string name="action_stop">Stop</string>
+    <string name="action_retry">Retry</string>
+    <string name="action_copy">Copy</string>
+    <string name="action_model">Model</string>
+    <string name="action_system_prompt">System prompt</string>
+    <string name="action_clear">Clear messages</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_ok">OK</string>
+    <string name="action_save">Save</string>
+
+    <!-- Chat -->
+    <string name="hint_message">Message…</string>
+    <string name="hint_rename">Conversation name</string>
+    <string name="hint_filter">Filter…</string>
+    <string name="streaming">Streaming…</string>
+    <string name="thinking">Thinking</string>
+
+    <!-- Settings -->
+    <string name="section_provider">Provider</string>
+    <string name="section_model">Model</string>
+    <string name="section_keys">API keys</string>
+    <string name="section_generation">Generation</string>
+    <string name="section_advanced">Advanced</string>
+    <string name="label_default_provider">Default provider</string>
+    <string name="label_model">Model for %1$s</string>
+    <string name="label_custom_model">Custom model ID</string>
+    <string name="label_api_key">%1$s API key</string>
+    <string name="label_base_url">Base URL override</string>
+    <string name="label_system_prompt">System prompt</string>
+    <string name="label_max_tokens">Max output tokens</string>
+    <string name="label_temperature">Temperature</string>
+    <string name="label_effort">Effort</string>
+    <string name="label_reasoning">Reasoning effort</string>
+    <string name="label_send_sampling">Send sampling params to Anthropic</string>
+    <string name="label_send_sampling_hint">Off by default. Current Claude models reject temperature/top_p with a 400; enable only for older models.</string>
+    <string name="label_legacy_tls">Legacy TLS</string>
+    <string name="label_show_thinking">Show model thinking</string>
+
+    <!-- TLS / diagnostics -->
+    <string name="tls_auto">Auto (Bouncy Castle below Android 4.1)</string>
+    <string name="tls_always">Always use Bouncy Castle</string>
+    <string name="tls_never">Always use the platform TLS</string>
+
+    <!-- Errors -->
+    <string name="err_no_key">No API key set for %1$s. Open Settings to add one.</string>
+    <string name="err_tls_too_old">This device\'s TLS support is too old to reach %1$s, and the bundled TLS fallback is unavailable.</string>
+    <string name="err_unknown_provider">Unknown provider: %1$s</string>
+
+    <!-- Provider display names -->
+    <string name="provider_anthropic">Anthropic</string>
+    <string name="provider_openai">OpenAI</string>
+    <string name="provider_google">Google</string>
+</resources>

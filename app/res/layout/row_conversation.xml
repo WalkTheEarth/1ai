@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The row root is focusable. That is deliberate and load-bearing: on a
+  BlackBerry the device is usually in touch mode, and in touch mode a ListView
+  will not draw its own selector for D-pad/trackpad movement. Making each row
+  focusable means the row's own background drives the highlight, which works in
+  touch mode and non-touch mode alike.
+
+  Every view carries explicit layout params. A style can supply them, but a
+  style that omits them makes Android 2.x throw at inflate time, so they live
+  on the element where they cannot go missing.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    style="@style/ListRow"
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <TextView
+        android:id="@+id/row_title"
+        style="@style/RowTitle"
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content" />
+
+    <TextView
+        android:id="@+id/row_preview"
+        style="@style/RowPreview"
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dip" />
+
+    <TextView
+        android:id="@+id/row_subtitle"
+        style="@style/RowSubtitle"
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dip" />
+
+</LinearLayout>

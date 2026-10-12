@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Message rows get a focus background too, so that scrolling a long reply with
+  the trackpad shows where the caret is rather than silently moving.
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape><solid android:color="@color/msg_focused" /></shape>
+    </item>
+    <item>
+        <shape><solid android:color="@android:color/transparent" /></shape>
+    </item>
+</selector>

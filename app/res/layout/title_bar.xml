@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Shared chrome, included by every screen.
+
+  Two action-button slots are declared up front and hidden by default, so a
+  screen never has to restructure the bar to add one. Keeping the same bar on
+  all three screens is what makes keyboard navigation predictable: focus order
+  is always title, then action buttons, then content.
+
+  Note that every view here carries an explicit layout_width/layout_height.
+  Layout params are read from the element, and while a style does supply them,
+  a style that omits them is fatal rather than merely wrong: Android 2.x
+  throws "You must supply a layout_width attribute" at inflate time. Leaving
+  them on the element keeps that failure mode impossible.
+
+  The slots are focusable, so on a BlackBerry they are reachable with the
+  trackpad like anything else.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    style="@style/TitleBar"
+    android:layout_width="fill_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="0dip"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/title"
+            style="@style/TitleText"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content" />
+
+        <TextView
+            android:id="@+id/subtitle"
+            style="@style/TitleSubtitle"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/btn_action"
+        style="@style/TitleButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/btn_action2"
+        style="@style/TitleButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:visibility="gone" />
+
+</LinearLayout>
