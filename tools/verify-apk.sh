@@ -63,18 +63,29 @@ echo "Verifying $APK"
 
 # ------------------------------------------------------- the compatibility floor
 BADGING="$("$AAPT2" dump badging "$APK" 2>&1)"
-if echo "$BADGING" | grep -q "sdkVersion:'$MIN_SDK'"; then
+
+# Matched loosely on purpose. The key has been spelled both sdkVersion and
+# minSdkVersion across aapt2 releases, and pinning the exact spelling made this
+# check fail against an APK that was perfectly fine -- which is a far worse
+# failure than a slightly looser match.
+SDK_LINE="$(echo "$BADGING" | grep -E "^(min)?[sS]dkVersion" | head -1)"
+if echo "$SDK_LINE" | grep -q "'$MIN_SDK'"; then
   ok "minSdkVersion is $MIN_SDK"
 else
   bad "minSdkVersion is not $MIN_SDK"
-  # Distinguish "aapt2 could not read the APK" from "the floor actually moved",
-  # because the two have completely different causes and fixes.
+  # Name the actual cause. "aapt2 could not read it", "the toolchain formats
+  # this differently" and "the floor really moved" need different fixes.
   if ! echo "$BADGING" | grep -q "^package:"; then
-    echo "        aapt2 produced no package line at all, so it could not read the APK:"
-    echo "        $AAPT2"
+    echo "        aapt2 produced no package line, so it could not read the APK at all."
+    echo "        tool: $AAPT2"
     echo "$BADGING" | head -5 | sed 's/^/        /'
+  elif [ -z "$SDK_LINE" ]; then
+    echo "        no minSdkVersion line in the badging output; the toolchain or"
+    echo "        the APK manifest is not what this expects. Full output:"
+    echo "$BADGING" | head -25 | sed 's/^/        /'
   else
-    echo "$BADGING" | grep -E "^sdkVersion|^targetSdkVersion" | sed 's/^/        /'
+    echo "        got: $SDK_LINE"
+    echo "        tool: $AAPT2"
   fi
 fi
 

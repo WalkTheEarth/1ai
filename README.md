@@ -355,7 +355,7 @@ The build also runs two checks that the compiler cannot do for you:
 `adb`-driven checks were run on real emulators: API 10 (Gingerbread), API 15, API 18 and
 API 21 (Lollipop).
 
-### Two build-tool bugs worth knowing about
+### Three build-tool bugs worth knowing about
 
 * The R8 bundled in build-tools 34 is an `8.2.2-dev` build that crashes with an internal
   `NullPointerException` on any class carrying an `InnerClasses` attribute — that is,
@@ -364,6 +364,12 @@ API 21 (Lollipop).
   view whose style does not supply them. Omitting them throws
   `"You must supply a layout_width attribute"` at inflate time. Layout params therefore
   live on the elements, never only in styles.
+* **build-tools 37 renames a key in `aapt2 dump badging`**, from `sdkVersion` to
+  `minSdkVersion` — note the capital `S`, which is why a lowercase
+  `sdkVersion:'4'` check silently stops matching. The APK is identical and correct; only
+  the text output changed. `build.sh` therefore prefers a known build-tools revision
+  rather than taking the newest, and the verifier matches the key loosely and dumps the
+  whole badging block when it cannot find one.
 
 ---
 

@@ -12,6 +12,15 @@ on:
 permissions:
   contents: write
 
+# Pinned for the same reason ci.yml pins them: build.sh otherwise takes the
+# newest toolchain it can find, and a GitHub runner image carries newer
+# build-tools than a developer machine. That is not cosmetic -- build-tools 37
+# emits badging in a different shape from 34, so the verifier and the build
+# disagreed about the very property being checked.
+env:
+  ANDROID_PLATFORM: android-34
+  ANDROID_BUILD_TOOLS: 34.0.0
+
 jobs:
   release:
     name: Build and publish

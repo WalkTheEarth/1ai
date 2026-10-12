@@ -47,16 +47,54 @@ find_sdk() {
 }
 SDK="$(find_sdk)" || die "no Android SDK found. Set ANDROID_HOME."
 
-# Pinnable so CI and a laptop build with the same toolchain. Without this both
-# sides just take the newest, which differ between a developer machine and a
-# runner image, and "it passed locally" stops meaning anything.
-BT_VER="${ANDROID_BUILD_TOOLS:-$(ls -1 "$SDK/build-tools" 2>/dev/null | sort -V | tail -1)}"
+# Toolchain selection, in order of preference:
+#
+#   1. ANDROID_BUILD_TOOLS / ANDROID_PLATFORM, which CI sets so a runner and a
+#      laptop cannot disagree.
+#   2. The versions below, if they happen to be installed.
+#   3. Whatever is newest.
+#
+# Never just "newest". That is how this project shipped a release job that
+# failed for a reason nobody could reproduce: a runner image carried newer
+# build-tools than the developer machine, and build-tools 37 renames the
+# dump-badging key from sdkVersion to minSdkVersion -- different case, so an
+# exact-match check against the old spelling stopped matching an APK that was
+# perfectly correct. The APK does not care, but every check written against
+# aapt2's output does.
+PREFERRED_BUILD_TOOLS=34.0.0
+PREFERRED_PLATFORM=android-34
+
+pick_build_tools() {
+  if [ -n "${ANDROID_BUILD_TOOLS:-}" ]; then
+    echo "$ANDROID_BUILD_TOOLS"; return
+  fi
+  if [ -d "$SDK/build-tools/$PREFERRED_BUILD_TOOLS" ]; then
+    echo "$PREFERRED_BUILD_TOOLS"; return
+  fi
+  ls -1 "$SDK/build-tools" 2>/dev/null | sort -V | tail -1
+}
+
+pick_platform() {
+  if [ -n "${ANDROID_PLATFORM:-}" ]; then
+    echo "$ANDROID_PLATFORM"; return
+  fi
+  if [ -d "$SDK/platforms/$PREFERRED_PLATFORM" ]; then
+    echo "$PREFERRED_PLATFORM"; return
+  fi
+  ls -1 "$SDK/platforms" | sort -V | tail -1
+}
+
+BT_VER="$(pick_build_tools)"
 [ -n "$BT_VER" ] || die "no build-tools in $SDK"
 [ -d "$SDK/build-tools/$BT_VER" ] || die "build-tools $BT_VER not installed in $SDK"
 BT="$SDK/build-tools/$BT_VER"
 
-PLATFORM="${ANDROID_PLATFORM:-$(ls -1 "$SDK/platforms" | sort -V | tail -1)}"
+PLATFORM="$(pick_platform)"
 [ -d "$SDK/platforms/$PLATFORM" ] || die "platform $PLATFORM not installed in $SDK"
+
+if [ "$BT_VER" != "$PREFERRED_BUILD_TOOLS" ]; then
+  echo "note: using build-tools $BT_VER, not the preferred $PREFERRED_BUILD_TOOLS"
+fi
 ANDROID_JAR="$SDK/platforms/$PLATFORM/android.jar"
 [ -f "$ANDROID_JAR" ] || die "$ANDROID_JAR missing"
 
