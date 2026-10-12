@@ -51,12 +51,9 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - uses: android-actions/setup-android@v3
-
-      - name: Install SDK packages
-        run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager --install "platforms;$ANDROID_PLATFORM" "build-tools;$BUILD_TOOLS"
+      - uses: ./.github/actions/android-sdk
+        with:
+          packages: platforms;${{ env.ANDROID_PLATFORM }} build-tools;${{ env.BUILD_TOOLS }}
 
       # Bouncy Castle, R8 and the Mozilla CA bundle are ~29MB of downloads.
       # Cached on a hash of build.sh so bumping a version refetches, and a
@@ -131,12 +128,9 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - uses: android-actions/setup-android@v3
-
-      - name: Install emulator
-        run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager --install "emulator" "platform-tools" "${{ matrix.image }}"
+      - uses: ./.github/actions/android-sdk
+        with:
+          packages: platform-tools emulator ${{ matrix.image }}
 
       - uses: actions/download-artifact@v4
         with:

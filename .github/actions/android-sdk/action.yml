@@ -1,0 +1,74 @@
+name: Android SDK
+description: >
+  Locates an Android SDK, installing the command line tools if the runner has
+  none, and installs the packages this project builds against.
+
+  This deliberately does not use android-actions/setup-android. That action
+  runs `sdkmanager --install tools`, and the `tools` package no longer exists
+  in Google's repository, so it fails outright on current runner images. The
+  runners already ship a perfectly good SDK at /usr/local/lib/android/sdk;
+  all that is actually needed is to find it and install two packages.
+
+inputs:
+  packages:
+    description: Space separated sdkmanager packages to install.
+    required: false
+    default: platforms;android-34 build-tools;34.0.0
+
+runs:
+  using: composite
+  steps:
+    - name: Locate or install the SDK
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+
+        # Prefer the SDK on the image, whatever its cmdline-tools version is
+        # called; fall back to whatever is on PATH; only download as a last
+        # resort so a normal run never pays for it.
+        sm="$(ls -1 "$sdk"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1 || true)"
+        if [ -z "$sm" ]; then
+          sm="$(command -v sdkmanager || true)"
+        fi
+
+        if [ -z "$sm" ]; then
+          echo "No Android SDK on this image; downloading the command line tools."
+          sdk="$RUNNER_TEMP/android-sdk"
+          mkdir -p "$sdk/cmdline-tools"
+          curl -fsSL \
+            https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
+            -o "$RUNNER_TEMP/clt.zip"
+          unzip -q "$RUNNER_TEMP/clt.zip" -d "$RUNNER_TEMP/clt"
+          mv "$RUNNER_TEMP/clt/cmdline-tools" "$sdk/cmdline-tools/latest"
+          sm="$sdk/cmdline-tools/latest/bin/sdkmanager"
+        fi
+
+        if [ -z "${sdk:-}" ] || [ ! -d "$sdk" ]; then
+          # sdkmanager lives at <sdk>/cmdline-tools/<ver>/bin/sdkmanager.
+          sdk="$(cd "$(dirname "$sm")/../../.." && pwd)"
+        fi
+
+        "$sm" --version
+        echo "ANDROID_HOME=$sdk"        >> "$GITHUB_ENV"
+        echo "ANDROID_SDK_ROOT=$sdk"    >> "$GITHUB_ENV"
+        echo "$(dirname "$sm")"         >> "$GITHUB_PATH"
+        echo "Using SDK at $sdk"
+
+    - name: Install packages
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        # Licences must be accepted before anything can be installed, and
+        # sdkmanager reports the "already accepted" case as a non-zero exit
+        # on some versions, hence the explicit success.
+        yes | sdkmanager --licenses > /dev/null 2>&1 || true
+
+        for pkg in ${{ inputs.packages }}; do
+          echo "installing $pkg"
+          sdkmanager --install "$pkg"
+        done
+
+        sdkmanager --list_installed
