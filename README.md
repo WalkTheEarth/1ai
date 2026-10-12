@@ -304,6 +304,12 @@ so scrolling up to re-read is not yanked away.
   10's Android runtime sits at. Building is not the same as running, and errors of that
   shape only ever appear at runtime on the target hardware.
 
+The smoke test lives in `tools/smoke-test.sh`, not in the workflow, for a concrete
+reason: that Action runs its `script` input through `sh -c` **one line at a time**, so
+an `if`/`then`/`fi` block written in the YAML fails with "Syntax error: end of file
+unexpected" instead of testing anything. In the repo it also runs against a local
+emulator before you push.
+
 The verification step is worth calling out. It asserts the promises the project makes:
 minSdkVersion is still 4, a launcher activity exists, v1 (JAR) signing is present —
 without which the APK will not install below Android 7 — and the dex references no API

@@ -125,6 +125,11 @@ jobs:
         with:
           name: 1ai-apk
 
+      # One line, deliberately. This action runs its `script` input through
+      # `sh -c` a line at a time, so an if/then/fi block written here fails
+      # with "Syntax error: end of file unexpected" instead of testing
+      # anything. The logic lives in tools/smoke-test.sh, where it can also be
+      # run against a local emulator before pushing.
       - name: Launch and check for crashes
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -134,26 +139,4 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           disable-animations: true
-          script: |
-            set -e
-            adb install -r 1ai.apk
-            adb logcat -c
-            adb shell am start -n com.oneai/.ui.ChatsActivity
-            sleep 15
-
-            # Android has no pidof before API 24, so the process is found via ps.
-            if ! adb shell ps | grep -q com.oneai; then
-              echo "::error::the app is not running after launch"
-              adb logcat -d | tail -80
-              exit 1
-            fi
-
-            # NoSuchMethodError and friends are exactly what shipping to API 4
-            # risks, and they only ever show up at runtime.
-            if adb logcat -d | grep -E "FATAL EXCEPTION|VerifyError|NoSuchMethodError|NoClassDefFoundError|Resources\\\$NotFoundException"; then
-              echo "::error::the app reported a runtime error on API ${{ matrix.api }}"
-              adb logcat -d | tail -80
-              exit 1
-            fi
-
-            echo "launched cleanly on API ${{ matrix.api }}"
+          script: ./tools/smoke-test.sh 1ai.apk
