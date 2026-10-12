@@ -113,20 +113,27 @@ ensure_cacert() {
   echo "    ok cacert.pem (sha256 verified, $(grep -c 'BEGIN CERTIFICATE' "$CACERT_DEST") roots)"
 }
 
+# Bouncy Castle provides TLS 1.2 in pure Java, which Android below 4.1 has no
+# way of doing otherwise. The jdk15to18 variants are compiled for Java 5, so
+# they need no desugaring and reference none of the java.util.function /
+# java.util.stream APIs that are missing on old Dalvik. Note that TLS lives in
+# bctls, not bcprov -- depending on bcprov alone is not enough.
+BC_VERSION=1.78
+
+ensure_libs() {
+  mkdir -p "$LIBS"
+  for a in bctls-jdk15to18 bcprov-jdk15to18 bcutil-jdk15to18; do
+    fetch_verified "$MAVEN/org/bouncycastle/$a/$BC_VERSION/$a-$BC_VERSION.jar" \
+      "$LIBS/$a-$BC_VERSION.jar"
+  done
+}
+
 fetch_deps() {
   mkdir -p "$LIBS" "$TOOLS"
   say "Fetching build tools, jars and trust anchors (checksum-verified)"
   ensure_r8
   ensure_cacert
-  # Bouncy Castle provides TLS 1.2 in pure Java so Android below 4.1 can reach
-  # modern API endpoints. The jdk15to18 variants are compiled for Java 5, so
-  # they need no desugaring and reference none of the java.util.function /
-  # java.util.stream APIs that are missing on old Dalvik. Note that TLS lives
-  # in bctls, not bcprov -- bcprov alone is not enough.
-  local BCV=1.78
-  for a in bctls-jdk15to18 bcprov-jdk15to18 bcutil-jdk15to18; do
-    fetch_verified "$MAVEN/org/bouncycastle/$a/$BCV/$a-$BCV.jar" "$LIBS/$a-$BCV.jar"
-  done
+  ensure_libs
   say "Dependencies ready"
 }
 
@@ -145,6 +152,7 @@ check_api_level() {
 build() {
   ensure_r8
   ensure_cacert
+  ensure_libs
   check_api_level
   say "SDK         $SDK"
   say "build-tools $BT_VER"

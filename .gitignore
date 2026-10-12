@@ -5,7 +5,11 @@ build/
 # these, so committing them would only add ~29MB of binaries that would then
 # silently drift from their published versions.
 libs/
-tools/
+
+# tools/ holds downloaded binaries *and* hand-written source (apicheck.py), so
+# only the jars are ignored -- ignoring the directory would drop the API-level
+# checker and break every fresh build.
+tools/*.jar
 
 # Trust anchors, fetched and sha256-verified by build.sh so the roots stay
 # current rather than frozen at whatever was committed.
