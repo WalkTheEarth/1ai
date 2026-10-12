@@ -45,9 +45,18 @@ runs:
           sm="$sdk/cmdline-tools/latest/bin/sdkmanager"
         fi
 
-        if [ -z "${sdk:-}" ] || [ ! -d "$sdk" ]; then
-          # sdkmanager lives at <sdk>/cmdline-tools/<ver>/bin/sdkmanager.
-          sdk="$(cd "$(dirname "$sm")/../../.." && pwd)"
+        if [ ! -d "${sdk:-}" ]; then
+          # sdkmanager lives at <sdk>/cmdline-tools/<ver>/bin/sdkmanager, so
+          # three levels up from its directory is the SDK root. Guarded so a
+          # surprise layout degrades to a clear error instead of tripping
+          # `set -e` on a failed cd.
+          derived="$(cd "$(dirname "$sm")/../../.." 2>/dev/null && pwd || true)"
+          if [ -n "$derived" ] && [ -d "$derived" ]; then
+            sdk="$derived"
+          else
+            echo "::error::could not determine the Android SDK root from $sm"
+            exit 1
+          fi
         fi
 
         "$sm" --version
@@ -58,15 +67,23 @@ runs:
 
     - name: Install packages
       shell: bash
+      # The package list arrives through the environment rather than being
+      # interpolated into the script. sdkmanager package names contain ';'
+      # ("platforms;android-34"), and a ';' written literally into a shell
+      # script is a command separator -- it parses as `for pkg in platforms`
+      # followed by a syntax error. Characters arriving via variable expansion
+      # are not re-parsed, so this is correct where direct substitution is not.
+      env:
+        PACKAGES: ${{ inputs.packages }}
       run: |
         set -euo pipefail
 
-        # Licences must be accepted before anything can be installed, and
-        # sdkmanager reports the "already accepted" case as a non-zero exit
-        # on some versions, hence the explicit success.
-        yes | sdkmanager --licenses > /dev/null 2>&1 || true
+        # Accepting licences is required before anything can be installed.
+        # sdkmanager exits non-zero when they are already accepted, and `yes`
+        # reports a broken pipe when it closes early, so both are tolerated.
+        { yes | sdkmanager --licenses; } > /dev/null 2>&1 || true
 
-        for pkg in ${{ inputs.packages }}; do
+        for pkg in $PACKAGES; do
           echo "installing $pkg"
           sdkmanager --install "$pkg"
         done
