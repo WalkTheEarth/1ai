@@ -2,6 +2,7 @@ package com.oneai.ui;
 
 import android.app.AlertDialog;
 import android.content.DialogInterface;
+import android.content.Intent;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.KeyEvent;
@@ -11,6 +12,9 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.oneai.R;
+import com.oneai.data.KeyFile;
+import com.oneai.data.KeyImport;
+import com.oneai.data.KeySync;
 import com.oneai.data.Prefs;
 import com.oneai.data.Store;
 import com.oneai.net.android.TransportFactory;
@@ -65,6 +69,17 @@ public class SettingsActivity extends BaseActivity {
         // One row per provider, opening a detail sheet, rather than four rows
         // inline. With the compatible endpoints included there are seventeen
         // providers, and the flat version would have been sixty-odd rows.
+        // Above the provider list on purpose: importing a file is how you
+        // avoid typing a sixty-character key on a phone keyboard at all.
+        section("Keys");
+        row(getString(R.string.label_import_keys), keyFileStatus(), new Runnable() {
+            @Override
+            public void run() {
+                importKeys();
+            }
+        });
+        help(getString(R.string.help_import_keys));
+
         section("Providers");
         Provider[] primary = Providers.primary();
         for (int i = 0; i < primary.length; i++) {
@@ -171,6 +186,175 @@ public class SettingsActivity extends BaseActivity {
         help(TransportFactory.describe(prefs));
     }
 
+    // ------------------------------------------------------------ importing
+
+    /** One line saying whether a key file is sitting on the device. */
+    private String keyFileStatus() {
+        try {
+            KeyImport.Found found = KeyImport.find(this);
+            if (found != null) {
+                return found.describe();
+            }
+        } catch (Exception ignored) {
+            // Reported as "not found" below, which is accurate enough.
+        }
+        return "no " + KeyImport.FILE_NAME + " found";
+    }
+
+
+    private static final int REQUEST_IMPORT_KEYS = 1;
+    private static final int REQUEST_STORAGE_PERMISSION = 2;
+
+    /**
+     * Imports keys, preferring a file already on the device.
+     *
+     * <p>The picker is offered only as a fallback. Plenty of Android builds --
+     * including the BlackBerry 10 runtime this was written for -- ship without
+     * a document provider at all, and a feature that needs one is no feature on
+     * those devices. Looking for the file directly always works.
+     */
+    private void importKeys() {
+        if (KeyImport.needsPermissionRequest() && !canReadExternalStorage()) {
+            requestPermissions(new String[]{KeyImport.readPermission()},
+                    REQUEST_STORAGE_PERMISSION);
+            return;
+        }
+        importFromDeviceOrPicker();
+    }
+
+    private boolean canReadExternalStorage() {
+        return checkSelfPermission(KeyImport.readPermission())
+                == android.content.pm.PackageManager.PERMISSION_GRANTED;
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
+        if (request != REQUEST_STORAGE_PERMISSION) {
+            return;
+        }
+        // Tried regardless of the answer: the app-specific directory needs no
+        // permission at all, so a refusal does not mean there is nothing to find.
+        importFromDeviceOrPicker();
+    }
+
+    private void importFromDeviceOrPicker() {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                KeyImport.Found found = null;
+                try {
+                    found = KeyImport.find(SettingsActivity.this);
+                } catch (Exception ignored) {
+                    // Fall through to the picker.
+                }
+                if (found != null) {
+                    final KeyFile parsed = KeyFile.parse(found.text);
+                    final String where = found.describe();
+                    showImportResult(parsed, null, where);
+                    return;
+                }
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        openPickerOrExplain();
+                    }
+                });
+            }
+        }).start();
+    }
+
+    private void openPickerOrExplain() {
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("text/plain");
+        if (android.os.Build.VERSION.SDK_INT >= 19) {
+            intent.putExtra(Intent.EXTRA_MIME_TYPES,
+                    new String[]{"text/plain", "text/*", "*/*"});
+        }
+        try {
+            startActivityForResult(intent, REQUEST_IMPORT_KEYS);
+        } catch (android.content.ActivityNotFoundException noPicker) {
+            explainWhereToPutTheFile();
+        }
+    }
+
+    private void explainWhereToPutTheFile() {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.label_import_keys)
+                .setMessage("No file picker on this device, and no " + KeyImport.FILE_NAME
+                        + " was found.\n\nCopy the file to one of these and try again:\n\n"
+                        + KeyImport.describeSearchPath(this))
+                .setPositiveButton(R.string.action_ok, null)
+                .show();
+    }
+
+    private void showImportResult(final KeyFile parsed, final String failure,
+                                  final String source) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (failure != null) {
+                    new AlertDialog.Builder(SettingsActivity.this)
+                            .setTitle(R.string.label_import_keys)
+                            .setMessage(failure)
+                            .setPositiveButton(R.string.action_ok, null)
+                            .show();
+                    return;
+                }
+                KeySync.apply(prefs, parsed);
+                build();
+                new AlertDialog.Builder(SettingsActivity.this)
+                        .setTitle(R.string.label_import_keys)
+                        .setMessage(describeImport(parsed, source))
+                        .setPositiveButton(R.string.action_ok, null)
+                        .show();
+            }
+        });
+    }
+
+    private String describeImport(KeyFile parsed, String source) {
+        if (parsed.isEmpty()) {
+            return "Nothing was imported.\n\nExpected lines like:\n"
+                    + "DEEPSEEK=[key]\nGOOGLE=[key]\nCLAUDE/ANTHROPIC=[key]";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("Imported ").append(parsed.summary()).append(" from ")
+                .append(source).append('.');
+        java.util.List<String> names = parsed.providerNames();
+        if (!names.isEmpty()) {
+            sb.append("\n\nProviders: ");
+            for (int i = 0; i < names.size(); i++) {
+                if (i > 0) {
+                    sb.append(", ");
+                }
+                sb.append(names.get(i));
+            }
+        }
+        // Naming what was skipped matters more than reporting success: a typo
+        // in a name is otherwise invisible until a request fails.
+        if (!parsed.unknown.isEmpty()) {
+            sb.append("\n\nNot recognised: ").append(join(parsed.unknown));
+        }
+        if (!parsed.problems.isEmpty()) {
+            sb.append("\n\nSkipped:\n").append(join(parsed.problems));
+        }
+        return sb.toString();
+    }
+
+    private static String join(java.util.List<String> items) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < items.size() && i < 8; i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append(items.get(i));
+        }
+        if (items.size() > 8) {
+            sb.append(", and ").append(items.size() - 8).append(" more");
+        }
+        return sb.toString();
+    }
+
     // ------------------------------------------------------------ providers
 
     private void providerRow(final Provider p) {
@@ -211,7 +395,7 @@ public class SettingsActivity extends BaseActivity {
     private void providerDetail(final Provider p) {
         java.util.List<CharSequence> labels = new java.util.ArrayList<CharSequence>();
         labels.add(getString(R.string.label_api_key, p.displayName()));
-        labels.add(getString(R.string.label_model));
+        labels.add(getString(R.string.label_model, p.displayName()));
         labels.add(getString(R.string.label_base_url));
         final boolean wantsEffort = isEffortProvider(p);
         if (wantsEffort) {

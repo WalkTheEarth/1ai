@@ -19,8 +19,8 @@ APK: ~560 KB                          Dependencies at runtime: none
 adb install build/1ai.apk
 ```
 
-Add an API key in **Settings** (the `Settings` button in the title bar, or press
-`Menu`), pick a provider, and start typing. `N` starts a new conversation.
+Add an API key — ideally by dropping a file on the device, see below — pick a provider, and
+start typing. `N` starts a new conversation.
 
 ### Requirements
 
@@ -106,6 +106,62 @@ Two details that are easy to get wrong and are handled deliberately:
   `Resources$NotFoundException`. The base theme is API-1-safe and only colours vary.
 
 ---
+
+## API keys from a file
+
+Typing a sixty-character key on a phone keyboard is miserable and getting it wrong is
+silent until a request fails. Put a file called **`1ai-keys.txt`** anywhere the app can
+find it and the keys load themselves:
+
+```
+# 1ai-keys.txt
+DEEPSEEK=[sk-...]
+GOOGLE=[AIza...]
+CLAUDE/ANTHROPIC=[sk-ant-...]
+OPENAI=[sk-...]
+OPENROUTER=[sk-or-...]
+
+MODEL_GOOGLE=gemini-3.8-flash
+BASE_URL_DEEPSEEK=https://api.deepseek.com/v1
+```
+
+The app looks in these places, in order, and imports the first one it finds:
+
+```
+<app external files dir>/1ai-keys.txt     no permission needed on any version
+/storage/sdcard/1ai-keys.txt
+/storage/sdcard/Download/1ai-keys.txt
+/storage/sdcard/Documents/1ai-keys.txt
+/storage/sdcard/1ai/1ai-keys.txt
+```
+
+It is picked up on launch whenever the file has changed since the last import, so
+replacing the file is all it takes. **Settings → Import keys from a file** does it on
+demand and shows where it looked.
+
+Names are matched loosely, so `Claude`, `CLAUDE/ANTHROPIC`, `claude_anthropic` and
+`anthropic` all mean the same thing, as do `GOOGLE`/`GEMINI` and `OPENAI`/`GPT`. Any
+provider id works, including every compatible endpoint. Surrounding `[brackets]` or
+`"quotes"` are stripped, because documentation writes placeholders that way and people
+paste them literally — and a key of `[sk-abc...]` produces a 401 that looks like a wrong
+key rather than a formatting mistake.
+
+`MODEL_` and `BASE_URL_` prefixes carry settings in the same file, so one file can be a
+whole configuration.
+
+Anything unrecognised is reported rather than silently dropped, because a typo in a name
+is otherwise invisible until a request fails:
+
+```
+Imported 4 API keys, 1 endpoint, 1 model from /storage/sdcard/1ai-keys.txt.
+Providers: DeepSeek, Google, Anthropic, OpenRouter
+Not recognised: TYPO_NAME
+```
+
+A file picker is offered as a fallback where the app finds no file, but it is not relied
+on: plenty of Android builds — including the BlackBerry 10 runtime this was written for —
+ship without a document provider at all, and a feature that needs one is no feature
+there.
 
 ## Attachments
 
@@ -246,6 +302,34 @@ these APIs is around there.
 **Test connection** in Settings reports which stack actually carried the request — not
 which one was configured, since those differ whenever a fallback engages — and diagnoses
 DNS, TLS and HTTP without spending a request against your quota.
+
+### Signing, and why an update can refuse to install
+
+Android will not update an installed app whose **signing key has changed**. If every
+release is signed with a different key, "install" fails with
+`INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES` and the only way forward is to uninstall
+first, losing all conversations.
+
+This bit the project for real: `keystore.jks` is gitignored, so every CI run generated a
+fresh random key and v1.0.0 and v1.0.1 could not install over one another. Two fixes:
+
+* `build.sh` prefers a **stable** key at `release.jks` when one is present, so successive
+  local builds upgrade each other. It is gitignored — a public repository that ships a
+  signing key lets anyone sign an APK that upgrades this one on your device.
+* For CI releases, set four repository secrets and `release.yml` uses them:
+
+  ```bash
+  gh secret set KEYSTORE_BASE64    --body "$(base64 -w0 release.jks)"
+  gh secret set KEYSTORE_PASSWORD  --body "$(cat release-key-password.txt)"
+  gh secret set KEY_ALIAS          --body "oneai"
+  gh secret set KEY_PASSWORD       --body "$(cat release-key-password.txt)"
+  ```
+
+  Without them the release still builds, with a throwaway key, and says so in its notes.
+
+The version code is now derived from the tag too — `v1.2.3` becomes `10203` — because
+`aapt2` only injects `--version-code` when the manifest has none, so without
+`--replace-version` every release silently shipped as `1`.
 
 ### API keys are stored unencrypted
 

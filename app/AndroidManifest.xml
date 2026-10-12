@@ -20,6 +20,16 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!--
+      Only for finding a key file dropped on the device. Capped at API 32
+      because from API 33 this permission no longer covers arbitrary documents,
+      and the file picker is used there instead. On API 22 and below it is
+      granted at install; from 23 it is requested at the moment it is needed.
+    -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
     <application
         android:label="@string/app_name"
         android:icon="@android:drawable/sym_def_app_icon"

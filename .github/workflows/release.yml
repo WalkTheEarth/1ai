@@ -76,7 +76,18 @@ jobs:
           fi
 
       - name: Build
-        run: ./build.sh
+        env:
+          # Take the version from the tag rather than the nearest one: the
+          # checkout is shallow, so `git describe` may see no tags at all.
+          ONEAI_VERSION_NAME: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          V="${ONEAI_VERSION_NAME#v}"
+          export ONEAI_VERSION_NAME="$V"
+          export ONEAI_VERSION_CODE=$(( $(echo "$V" | cut -d. -f1) * 10000 \
+                                     + $(echo "$V" | cut -d. -f2) * 100 \
+                                     + $(echo "$V" | cut -d. -f3) ))
+          echo "building $ONEAI_VERSION_NAME (code $ONEAI_VERSION_CODE)"
+          ./build.sh
 
       - name: Verify the artefact
         run: ./tools/verify-apk.sh build/1ai.apk 4

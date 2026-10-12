@@ -15,10 +15,17 @@ tools/*.jar
 # current rather than frozen at whatever was committed.
 app/res/raw/cacert.pem
 
-# Signing key. This is a throwaway debug keystore that build.sh regenerates on
-# first build; it has a well-known password, so publishing it would be
-# pointless as well as bad practice. Supply your own for a real release.
+# Signing keys. Never committed.
+#
+# keystore.jks is a throwaway debug key that build.sh generates on first build.
+#
+# release.jks is the opposite and matters far more: it is the key every release
+# must be signed with, because Android refuses to update an installed app whose
+# signing key changed. Committing it to a public repository would let anyone
+# sign an APK that upgrades this one on your device.
 keystore.jks
+release.jks
+release-key-password.txt
 
 # Partial downloads
 *.tmp

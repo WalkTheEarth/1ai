@@ -45,7 +45,7 @@ find "$ROOT/app/src/com/oneai/provider" -name '*.java' >> "$OUT/srcs.txt"
 # ones are named explicitly rather than globbed -- data/ is mostly SQLite and
 # Bitmap code, and util/ mostly spans. Anything listed here must not import
 # android.*, and the build fails loudly if it does.
-for f in data/Attachment util/Hostname util/Pem; do
+for f in data/Attachment data/KeyFile util/Hostname util/Pem; do
   echo "$ROOT/app/src/com/oneai/$f.java" >> "$OUT/srcs.txt"
 done
 find "$ROOT/test/src" -name '*.java' >> "$OUT/srcs.txt"

@@ -26,6 +26,23 @@ DEX="$OUT/dex"
 MIN_SDK=4
 TARGET_SDK=28
 
+# versionCode must increase with every release or an installer may refuse the
+# update even when the signing key matches. Deriving it from the tag means it
+# cannot be forgotten: v1.2.3 becomes 10203.
+VERSION_NAME="${ONEAI_VERSION_NAME:-}"
+VERSION_CODE="${ONEAI_VERSION_CODE:-}"
+if [ -z "$VERSION_NAME" ]; then
+  tag="$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null || true)"
+  case "$tag" in
+    v[0-9]*) VERSION_NAME="${tag#v}" ;;
+  esac
+fi
+if [ -z "$VERSION_CODE" ] && [ -n "$VERSION_NAME" ]; then
+  VERSION_CODE=$(( $(echo "$VERSION_NAME" | cut -d. -f1) * 10000 \
+                  + $(echo "$VERSION_NAME" | cut -d. -f2) * 100 \
+                  + $(echo "$VERSION_NAME" | cut -d. -f3) ))
+fi
+
 MAVEN=https://repo1.maven.org/maven2
 GOOGLE_MAVEN=https://dl.google.com/dl/android/maven2
 
@@ -201,6 +218,7 @@ build() {
   say "build-tools $BT_VER"
   say "platform    $PLATFORM"
   say "R8          $R8_VERSION"
+  say "version     ${VERSION_NAME:-<from manifest>} (code ${VERSION_CODE:-<from manifest>})"
   echo
 
   rm -rf "$OUT"; mkdir -p "$GEN" "$CLASSES" "$DEX"
@@ -210,6 +228,17 @@ build() {
   "$AAPT2" compile --dir "$APP/res" -o "$OUT/res.zip"
 
   say "[2/8] aapt2 link"
+  # --replace-version is required, not optional. Without it aapt2 only injects
+  # these "if none is present", and the manifest always declares one -- so the
+  # version silently stayed at the manifest's 1/1.0 for every release, and an
+  # installer had no way to see v1.0.1 as newer than v1.0.0.
+  local version_args=()
+  if [ -n "$VERSION_CODE" ] || [ -n "$VERSION_NAME" ]; then
+    version_args+=(--replace-version)
+  fi
+  [ -n "$VERSION_CODE" ] && version_args+=(--version-code "$VERSION_CODE")
+  [ -n "$VERSION_NAME" ] && version_args+=(--version-name "$VERSION_NAME")
+
   "$AAPT2" link \
     -o "$OUT/base.apk" \
     -I "$ANDROID_JAR" \
@@ -217,6 +246,7 @@ build() {
     --java "$GEN" \
     --min-sdk-version "$MIN_SDK" \
     --target-sdk-version "$TARGET_SDK" \
+    "${version_args[@]}" \
     "$OUT/res.zip"
 
   # 2. Java --------------------------------------------------------------
@@ -277,6 +307,18 @@ build() {
   # from repository secrets). Without one we fall back to a throwaway debug
   # keystore, which is fine for sideloading but cannot be used to update an
   # installed app -- Android refuses an update signed by a different key.
+  # Prefer a stable release key when one is present. Without this, every build
+  # gets a fresh random debug key, and Android refuses to install an APK signed
+  # by a different key than the one already on the device -- so "upgrading"
+  # silently fails with INSTALL_FAILED_UPDATE_INCOMPATIBLE. That is exactly how
+  # v1.0.1 came to be uninstallable over v1.0.0.
+  if [ -z "${ONEAI_KEYSTORE:-}" ] && [ -f "$ROOT/release.jks" ]; then
+    ONEAI_KEYSTORE="$ROOT/release.jks"
+    if [ -z "${ONEAI_KEYSTORE_PASS:-}" ] && [ -f "$ROOT/release-key-password.txt" ]; then
+      ONEAI_KEYSTORE_PASS="$(cat "$ROOT/release-key-password.txt")"
+    fi
+  fi
+
   local ks="${ONEAI_KEYSTORE:-$ROOT/keystore.jks}"
   local store_pass="${ONEAI_KEYSTORE_PASS:-android}"
   local key_alias="${ONEAI_KEY_ALIAS:-oneai}"

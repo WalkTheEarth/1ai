@@ -160,6 +160,21 @@ public final class Prefs {
         putBoolean("send_sampling", on);
     }
 
+    /**
+     * Modification time of the key file last imported from the device.
+     *
+     * <p>Stored as the file's own timestamp rather than the time of import, so
+     * that replacing the file is what triggers a re-import. Copying the same
+     * file again changes its modification time too, which is harmless.
+     */
+    public long lastKeyImport() {
+        return sp.getLong("last_key_import", 0L);
+    }
+
+    public void setLastKeyImport(long modified) {
+        sp.edit().putLong("last_key_import", modified).commit();
+    }
+
     public String legacyTls() {
         return sp.getString("legacy_tls", TLS_AUTO);
     }

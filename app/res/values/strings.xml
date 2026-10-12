@@ -62,6 +62,8 @@
     <string name="label_reasoning">Reasoning effort</string>
     <string name="label_send_sampling">Send sampling params to Anthropic</string>
     <string name="label_send_sampling_hint">Off by default. Current Claude models reject temperature/top_p with a 400; enable only for older models.</string>
+    <string name="label_import_keys">Import keys from a file</string>
+    <string name="help_import_keys">DEEPSEEK=[key], GOOGLE=[key], CLAUDE/ANTHROPIC=[key]</string>
     <string name="label_legacy_tls">Legacy TLS</string>
     <string name="label_show_thinking">Show model thinking</string>
 

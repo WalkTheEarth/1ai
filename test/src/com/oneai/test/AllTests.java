@@ -15,6 +15,7 @@ import com.oneai.provider.StreamListener;
 
 import org.json.JSONObject;
 
+import com.oneai.data.KeyFile;
 import com.oneai.net.TlsFailures;
 import com.oneai.provider.Json;
 import com.oneai.util.Hostname;
@@ -95,6 +96,7 @@ public final class AllTests {
         endpoints();
         nullHandling();
         tlsFailures();
+        keyFiles();
         System.exit(T.report());
     }
 
@@ -244,6 +246,111 @@ public final class AllTests {
             } catch (Exception e) {
                 throw new AssertionError(e);
             }
+        });
+    }
+
+    // ------------------------------------------------------------- key files
+
+    private static void keyFiles() {
+        T.section("Key file import");
+
+        T.test("the documented format parses", () -> {
+            KeyFile k = KeyFile.parse(
+                    "# 1ai-keys.txt\n"
+                  + "DEEPSEEK=[sk-deepseek-value]\n"
+                  + "GOOGLE=[AIza-google-value]\n"
+                  + "CLAUDE/ANTHROPIC=[sk-ant-value]\n");
+            T.eq("sk-deepseek-value", k.apiKeys.get("deepseek"), "deepseek");
+            T.eq("AIza-google-value", k.apiKeys.get("google"), "google");
+            T.eq("sk-ant-value", k.apiKeys.get("anthropic"), "CLAUDE/ANTHROPIC");
+            T.eq(Integer.valueOf(3), Integer.valueOf(k.entries), "three entries");
+            T.isTrue(k.unknown.isEmpty(), "nothing unrecognised");
+            T.isTrue(k.problems.isEmpty(), "nothing skipped");
+        });
+
+        T.test("brackets and quotes are stripped", () -> {
+            // Documentation writes placeholders as [key] and people paste them
+            // literally; sending "[sk-abc]" produces a 401 that looks like a
+            // wrong key rather than a formatting mistake.
+            KeyFile k = KeyFile.parse(
+                    "DEEPSEEK=[sk-a]\nGOOGLE=\"AIza-b\"\nOPENAI='sk-c'\nMISTRAL=<sk-d>\n");
+            T.eq("sk-a", k.apiKeys.get("deepseek"), "square");
+            T.eq("AIza-b", k.apiKeys.get("google"), "double quotes");
+            T.eq("sk-c", k.apiKeys.get("openai"), "single quotes");
+            T.eq("sk-d", k.apiKeys.get("mistral"), "angle brackets");
+        });
+
+        T.test("names are matched loosely", () -> {
+            KeyFile k = KeyFile.parse(
+                    "  claude  =  [a]  \n"
+                  + "Anthropic=[b]\n"
+                  + "CLAUDE_ANTHROPIC=[c]\n"
+                  + "gemini=[d]\n"
+                  + "gpt=[e]\n"
+                  + "grok=[f]\n");
+            T.eq("c", k.apiKeys.get("anthropic"), "last write wins for one provider");
+            T.eq("d", k.apiKeys.get("google"), "gemini alias");
+            T.eq("e", k.apiKeys.get("openai"), "gpt alias");
+            T.eq("f", k.apiKeys.get("xai"), "grok alias");
+        });
+
+        T.test("compatible endpoints resolve by their own id", () -> {
+            KeyFile k = KeyFile.parse(
+                    "OPENROUTER=[a]\nGroq=[b]\nTOGETHER=[c]\nollama=[d]\n");
+            T.eq("a", k.apiKeys.get("openrouter"), "openrouter");
+            T.eq("b", k.apiKeys.get("groq"), "groq");
+            T.eq("c", k.apiKeys.get("together"), "together");
+            T.eq("d", k.apiKeys.get("ollama"), "ollama");
+        });
+
+        T.test("settings travel in the same file", () -> {
+            KeyFile k = KeyFile.parse(
+                    "MODEL_GOOGLE=gemini-3.8-flash\n"
+                  + "BASE_URL_DEEPSEEK=https://api.deepseek.com/v1\n"
+                  + "URL_OPENROUTER=https://openrouter.ai/api/v1\n");
+            T.eq("gemini-3.8-flash", k.models.get("google"), "model");
+            T.eq("https://api.deepseek.com/v1", k.baseUrls.get("deepseek"), "base url");
+            T.eq("https://openrouter.ai/api/v1", k.baseUrls.get("openrouter"), "URL_ form");
+        });
+
+        T.test("comments, blanks and a BOM are ignored", () -> {
+            KeyFile k = KeyFile.parse(
+                    "\uFEFF# a comment\n\n   \n; also a comment\nDEEPSEEK=[a]\n");
+            T.eq(Integer.valueOf(1), Integer.valueOf(k.entries), "one entry");
+            T.eq("a", k.apiKeys.get("deepseek"), "parsed");
+        });
+
+        T.test("CRLF files work", () -> {
+            KeyFile k = KeyFile.parse("DEEPSEEK=[a]\r\nGOOGLE=[b]\r\n");
+            T.eq("a", k.apiKeys.get("deepseek"), "deepseek");
+            T.eq("b", k.apiKeys.get("google"), "google");
+        });
+
+        T.test("unknown names and bad lines are reported, not swallowed", () -> {
+            // A typo in a name is otherwise invisible until a request fails.
+            KeyFile k = KeyFile.parse(
+                    "DEEPSEEEK=[a]\n"
+                  + "this line has no equals sign\n"
+                  + "GOOGLE=\n"
+                  + "OPENAI=[b]\n");
+            T.eq("b", k.apiKeys.get("openai"), "the good line still landed");
+            T.eq(1, k.unknown.size(), "one unrecognised name");
+            T.eq("DEEPSEEEK", k.unknown.get(0), "named");
+            T.eq(2, k.problems.size(), "missing '=' and empty value");
+        });
+
+        T.test("summary reads sensibly", () -> {
+            T.eq("2 API keys, 1 endpoint", KeyFile.parse(
+                    "DEEPSEEK=[a]\nGOOGLE=[b]\nBASE_URL_GROQ=https://x/v1\n").summary(),
+                    "counts");
+            T.eq("nothing", KeyFile.parse("# empty\n").summary(), "empty");
+        });
+
+        T.test("an empty or junk file imports nothing and says so", () -> {
+            T.isTrue(KeyFile.parse(null).isEmpty(), "null");
+            T.isTrue(KeyFile.parse("").isEmpty(), "empty string");
+            T.isTrue(KeyFile.parse("just some prose\nwith no keys at all\n").isEmpty(),
+                    "prose");
         });
     }
 

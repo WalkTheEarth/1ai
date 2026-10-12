@@ -14,6 +14,8 @@ import android.widget.TextView;
 import com.oneai.R;
 import com.oneai.data.Conversation;
 import com.oneai.data.Db;
+import com.oneai.data.KeyImport;
+import com.oneai.data.KeySync;
 import com.oneai.data.Prefs;
 import com.oneai.data.Store;
 import com.oneai.provider.Provider;
