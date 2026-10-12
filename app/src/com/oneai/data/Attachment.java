@@ -33,6 +33,17 @@ public final class Attachment {
     public long sizeBytes;
     public long createdAt;
 
+    /**
+     * The file's bytes, loaded only while a request is being assembled.
+     *
+     * <p>Never persisted and never held for long: the point is to keep the
+     * provider layer free of file IO, so it stays testable on a plain JVM.
+     * Deliberately not cached across requests -- a conversation with a dozen
+     * images would otherwise pin several megabytes of base64 on a device with
+     * a very small heap.
+     */
+    public byte[] data;
+
     public Attachment() {
     }
 

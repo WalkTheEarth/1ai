@@ -1,5 +1,6 @@
 package com.oneai.provider;
 
+import com.oneai.data.Attachment;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -90,7 +91,7 @@ public final class AnthropicProvider extends Provider {
             ChatMessage m = r.messages.get(i);
             JSONObject jm = new JSONObject();
             jm.put("role", m.role);
-            jm.put("content", m.content);
+            jm.put("content", contentFor(m));
             msgs.put(jm);
         }
         o.put("messages", msgs);
@@ -104,6 +105,46 @@ public final class AnthropicProvider extends Provider {
             o.put("output_config", oc);
         }
         return o.toString();
+    }
+
+    /**
+     * A bare string when nothing is attached, and an array of content blocks
+     * when something is. Keeping the simple case simple matters: it is what the
+     * API examples send and it keeps the common request body small.
+     *
+     * <p>Attachments are only ever emitted on user turns. Anthropic rejects
+     * image blocks in assistant turns outright, so re-sending a model's own
+     * images back to it is not merely pointless, it is an error.
+     */
+    private static Object contentFor(ChatMessage m) throws JSONException {
+        if (!m.hasAttachments() || !ChatMessage.USER.equals(m.role)) {
+            return m.content;
+        }
+        JSONArray blocks = new JSONArray();
+        // Text first: the documented convention, and what the models expect.
+        if (m.content.length() > 0) {
+            JSONObject text = new JSONObject();
+            text.put("type", "text");
+            text.put("text", m.content);
+            blocks.put(text);
+        }
+        for (int i = 0; i < m.attachments.size(); i++) {
+            Attachment a = m.attachments.get(i);
+            if (!Attachments.usable(a)) {
+                continue;
+            }
+            JSONObject source = new JSONObject();
+            source.put("type", "base64");
+            source.put("media_type", a.mimeType);
+            source.put("data", Attachments.base64(a));
+
+            JSONObject block = new JSONObject();
+            // PDFs use a document block; the source shape is otherwise identical.
+            block.put("type", a.isPdf() ? "document" : "image");
+            block.put("source", source);
+            blocks.put(block);
+        }
+        return blocks.length() == 0 ? m.content : blocks;
     }
 
     @Override

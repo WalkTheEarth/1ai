@@ -72,24 +72,13 @@ jobs:
       - name: Build
         run: ./build.sh
 
-      # These assertions are the whole point of the project. If the floor ever
-      # silently moves, the build should go red rather than quietly shipping
-      # an app that no longer installs where it is supposed to.
-      - name: Assert the compatibility floor
-        run: |
-          set -e
-          BADGING="$(aapt2 dump badging build/1ai.apk)"
-          echo "$BADGING" | grep -q "sdkVersion:'4'" \
-            || { echo "::error::minSdkVersion is no longer 4"; echo "$BADGING"; exit 1; }
-          echo "$BADGING" | grep -q "launchable-activity" \
-            || { echo "::error::no launcher activity"; exit 1; }
-          echo "minSdkVersion 4 and a launcher activity are both present"
-
-      - name: Verify signature
-        run: |
-          apksigner verify --min-sdk-version 4 -v build/1ai.apk
-          apksigner verify --min-sdk-version 4 -v build/1ai.apk | grep -q "v1 scheme.*true" \
-            || { echo "::error::v1 (JAR) signing missing - will not install below Android 7"; exit 1; }
+      # Every assertion the project makes about its own artefact, in one
+      # script that runs identically on a laptop. Deliberately not inlined
+      # here: YAML is a bad place for logic that must not silently rot, and
+      # reaching for bare `aapt2` fails because it lives in build-tools/,
+      # which is not on PATH.
+      - name: Verify the artefact
+        run: ./tools/verify-apk.sh build/1ai.apk 4
 
       - uses: actions/upload-artifact@v4
         with:

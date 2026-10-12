@@ -1,5 +1,6 @@
 package com.oneai.provider;
 
+import com.oneai.data.Attachment;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -81,12 +82,9 @@ public final class GoogleProvider extends Provider {
             JSONObject c = new JSONObject();
             // Gemini calls the assistant "model". "assistant" is not a valid
             // role here and is rejected.
-            c.put("role", ChatMessage.ASSISTANT.equals(m.role) ? "model" : "user");
-            JSONArray parts = new JSONArray();
-            JSONObject part = new JSONObject();
-            part.put("text", m.content);
-            parts.put(part);
-            c.put("parts", parts);
+            boolean isUser = !ChatMessage.ASSISTANT.equals(m.role);
+            c.put("role", isUser ? "user" : "model");
+            c.put("parts", partsFor(m, isUser));
             contents.put(c);
         }
         o.put("contents", contents);
@@ -109,6 +107,49 @@ public final class GoogleProvider extends Provider {
         o.put("generationConfig", gen);
 
         return o.toString();
+    }
+
+    /**
+     * Text and media as peer entries in one parts array.
+     *
+     * <p>camelCase ({@code inlineData} / {@code mimeType}) rather than the
+     * snake_case of Google's own curl samples. Both are accepted by proto3 JSON,
+     * but the published JSON schema documents camelCase, so that is what the
+     * REST endpoint is specified against. The {@code "type": "image"}
+     * discriminator seen in newer Google docs belongs to the Interactions API
+     * and is not valid here.
+     */
+    private static JSONArray partsFor(ChatMessage m, boolean isUser) throws JSONException {
+        JSONArray parts = new JSONArray();
+        // Text before media, matching the documented convention.
+        if (m.content.length() > 0) {
+            JSONObject text = new JSONObject();
+            text.put("text", m.content);
+            parts.put(text);
+        }
+        if (isUser && m.hasAttachments()) {
+            for (int i = 0; i < m.attachments.size(); i++) {
+                Attachment a = m.attachments.get(i);
+                if (!Attachments.usable(a)) {
+                    continue;
+                }
+                JSONObject blob = new JSONObject();
+                blob.put("mimeType", a.mimeType);
+                blob.put("data", Attachments.base64(a));
+
+                JSONObject part = new JSONObject();
+                part.put("inlineData", blob);
+                parts.put(part);
+            }
+        }
+        if (parts.length() == 0) {
+            // Gemini rejects an empty parts array, which can otherwise happen
+            // for an assistant turn whose text was empty.
+            JSONObject empty = new JSONObject();
+            empty.put("text", "");
+            parts.put(empty);
+        }
+        return parts;
     }
 
     @Override

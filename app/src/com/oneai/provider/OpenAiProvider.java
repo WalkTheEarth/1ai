@@ -1,5 +1,6 @@
 package com.oneai.provider;
 
+import com.oneai.data.Attachment;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -19,36 +20,59 @@ import java.util.Map;
  * completions carries no announced sunset date, so the simpler and far more
  * widely implemented endpoint is the right trade for this client.
  */
-public final class OpenAiProvider extends Provider {
+public class OpenAiProvider extends Provider {
 
     public static final String ID = "openai";
 
+    private final String id;
+    private final String name;
+    private final String baseUrl;
+    private final String defaultModel;
+    private final List<String> models;
+
+    /** The OpenAI service itself. */
+    public OpenAiProvider() {
+        this(ID, "OpenAI", "https://api.openai.com/v1", "gpt-6-astra",
+                Arrays.asList("gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna"));
+    }
+
+    /**
+     * Any service speaking the same wire format. Subclasses inherit the entire
+     * request builder and stream parser, which is the point: the format is
+     * identical across all of them and only the identity differs.
+     */
+    protected OpenAiProvider(String id, String name, String baseUrl, String defaultModel,
+                             List<String> models) {
+        this.id = id;
+        this.name = name;
+        this.baseUrl = baseUrl;
+        this.defaultModel = defaultModel;
+        this.models = models;
+    }
+
     @Override
     public String id() {
-        return ID;
+        return id;
     }
 
     @Override
     public String displayName() {
-        return "OpenAI";
+        return name;
     }
 
     @Override
     public String defaultBaseUrl() {
-        return "https://api.openai.com";
+        return baseUrl;
     }
 
     @Override
     public String defaultModel() {
-        return "gpt-6-astra";
+        return defaultModel;
     }
 
     @Override
     public List<String> knownModels() {
-        return Arrays.asList(
-                "gpt-6-astra",
-                "gpt-6.1-sol",
-                "gpt-6-luna");
+        return models;
     }
 
     /**
@@ -63,7 +87,24 @@ public final class OpenAiProvider extends Provider {
 
     @Override
     public String url(String baseUrl, ChatRequest request) {
-        return trimSlash(baseUrl) + "/v1/chat/completions";
+        return completionsUrl(baseUrl);
+    }
+
+    /**
+     * Builds the completions URL without doubling the version segment.
+     *
+     * <p>Most compatible services document a base that already carries it
+     * ("https://openrouter.ai/api/v1"), while OpenAI's own does not
+     * ("https://api.openai.com"). Appending unconditionally would ask OpenRouter
+     * for "/api/v1/v1/chat/completions", so the segment is added only when it is
+     * missing.
+     */
+    static String completionsUrl(String baseUrl) {
+        String base = trimSlash(baseUrl);
+        if (base.endsWith("/v1") || base.endsWith("/v1beta")) {
+            return base + "/chat/completions";
+        }
+        return base + "/v1/chat/completions";
     }
 
     @Override
@@ -99,7 +140,7 @@ public final class OpenAiProvider extends Provider {
             ChatMessage m = r.messages.get(i);
             JSONObject jm = new JSONObject();
             jm.put("role", m.role);
-            jm.put("content", m.content);
+            jm.put("content", contentFor(m));
             msgs.put(jm);
         }
         o.put("messages", msgs);
@@ -115,6 +156,51 @@ public final class OpenAiProvider extends Provider {
             o.put("reasoning_effort", r.effort);
         }
         return o.toString();
+    }
+
+    /**
+     * A bare string when nothing is attached, an array of parts when something
+     * is. Attachments appear on user turns only.
+     */
+    private static Object contentFor(ChatMessage m) throws JSONException {
+        if (!m.hasAttachments() || !ChatMessage.USER.equals(m.role)) {
+            return m.content;
+        }
+        JSONArray parts = new JSONArray();
+        if (m.content.length() > 0) {
+            JSONObject text = new JSONObject();
+            text.put("type", "text");
+            text.put("text", m.content);
+            parts.put(text);
+        }
+        for (int i = 0; i < m.attachments.size(); i++) {
+            Attachment a = m.attachments.get(i);
+            if (!Attachments.usable(a)) {
+                continue;
+            }
+            JSONObject part = new JSONObject();
+            if (a.isPdf()) {
+                // Chat Completions takes PDFs and nothing else as file parts,
+                // and the fields nest under "file" rather than sitting flat on
+                // the part.
+                JSONObject file = new JSONObject();
+                file.put("filename", a.fileName != null && a.fileName.length() > 0
+                        ? a.fileName : "document.pdf");
+                file.put("file_data", Attachments.dataUrl(a));
+                part.put("type", "file");
+                part.put("file", file);
+            } else {
+                // Note that image_url is an OBJECT here. On /v1/responses it is
+                // a bare string with detail as a sibling, which is an easy and
+                // silent mix-up between the two endpoints.
+                JSONObject url = new JSONObject();
+                url.put("url", Attachments.dataUrl(a));
+                part.put("type", "image_url");
+                part.put("image_url", url);
+            }
+            parts.put(part);
+        }
+        return parts.length() == 0 ? m.content : parts;
     }
 
     @Override
@@ -207,15 +293,16 @@ public final class OpenAiProvider extends Provider {
         }
         if (status == 401) {
             return new ProviderException(status, code, detail,
-                    "API key rejected by OpenAI. Check it in Settings.", false);
+                    "API key rejected by " + displayName() + ". Check it in Settings.", false);
         }
         if (status == 429) {
             String lower = detail == null ? "" : detail.toLowerCase();
             boolean quota = lower.indexOf("quota") >= 0 || lower.indexOf("billing") >= 0
                     || lower.indexOf("credit") >= 0;
             return new ProviderException(status, code, detail,
-                    quota ? "OpenAI account is out of credit or over its spend limit."
-                          : "Rate limited by OpenAI. Wait a moment and retry.",
+                    quota ? displayName() + " account is out of credit or over its spend limit."
+                          : "Rate limited by " + displayName()
+                                + ". Wait a moment and retry.",
                     !quota);
         }
         if (status == 400 && detail != null && detail.indexOf("max_completion_tokens") >= 0) {
@@ -224,9 +311,9 @@ public final class OpenAiProvider extends Provider {
         }
         if (status >= 500) {
             return new ProviderException(status, code, detail,
-                    "OpenAI is having trouble. Retry shortly.", true);
+                    displayName() + " is having trouble. Retry shortly.", true);
         }
-        return ProviderException.fromStatus(status, "OpenAI", detail);
+        return ProviderException.fromStatus(status, displayName(), detail);
     }
 
     private static String trimSlash(String s) {

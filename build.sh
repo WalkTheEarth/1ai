@@ -261,16 +261,16 @@ build() {
     --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
     --out "$OUT/1ai.apk" "$OUT/aligned.apk"
 
-  # 6. API-level check on the artefact -----------------------------------
-  # Source-level checking cannot see anything pulled in from the Bouncy Castle
-  # jars, so the built dex is scanned as well. Cheap, and it runs on every
-  # build so a regression cannot reach a release.
-  say "[8/8] API check on the built dex"
-  "$ROOT/tools/dexcheck.sh" "$OUT/1ai.apk" "$MIN_SDK"
+  # 6. Verify the artefact -----------------------------------------------
+  # minSdk, launcher activity, v1 signing and the dex API scan all in one
+  # place, shared with CI so the two can never disagree about what "valid"
+  # means. Source-level checking cannot see anything arriving from the Bouncy
+  # Castle jars; this can.
+  say "[8/8] verifying the APK"
+  "$ROOT/tools/verify-apk.sh" "$OUT/1ai.apk" "$MIN_SDK"
 
   echo
   say "Built $OUT/1ai.apk  ($(du -h "$OUT/1ai.apk" | cut -f1))"
-  "$APKSIGNER" verify --min-sdk-version "$MIN_SDK" "$OUT/1ai.apk" && echo "      signature OK"
   "$AAPT2" dump badging "$OUT/1ai.apk" 2>/dev/null \
     | grep -E "^package|^sdkVersion|^targetSdkVersion|^launchable-activity"
 }

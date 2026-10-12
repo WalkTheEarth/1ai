@@ -41,11 +41,12 @@ rm -rf "$OUT"; mkdir -p "$OUT/classes"
 find "$ROOT/app/src/com/oneai/net" -maxdepth 1 -name '*.java' > "$OUT/srcs.txt"
 find "$ROOT/app/src/com/oneai/provider" -name '*.java' >> "$OUT/srcs.txt"
 
-# util/ mixes Android-free helpers (Hostname, Pem) with Android-only ones
-# (Markdown, which is all spans), so the pure ones are named explicitly rather
-# than globbed. Anything added here must not import android.*.
-for f in Hostname Pem; do
-  echo "$ROOT/app/src/com/oneai/util/$f.java" >> "$OUT/srcs.txt"
+# These packages mix Android-free types with Android-only ones, so the pure
+# ones are named explicitly rather than globbed -- data/ is mostly SQLite and
+# Bitmap code, and util/ mostly spans. Anything listed here must not import
+# android.*, and the build fails loudly if it does.
+for f in data/Attachment util/Hostname util/Pem; do
+  echo "$ROOT/app/src/com/oneai/$f.java" >> "$OUT/srcs.txt"
 done
 find "$ROOT/test/src" -name '*.java' >> "$OUT/srcs.txt"
 

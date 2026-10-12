@@ -68,11 +68,7 @@ jobs:
         run: ./build.sh
 
       - name: Verify the artefact
-        run: |
-          set -e
-          aapt2 dump badging build/1ai.apk | grep -q "sdkVersion:'4'"
-          apksigner verify --min-sdk-version 4 -v build/1ai.apk
-          ./tools/dexcheck.sh build/1ai.apk 4
+        run: ./tools/verify-apk.sh build/1ai.apk 4
 
       - name: Checksums
         run: |
